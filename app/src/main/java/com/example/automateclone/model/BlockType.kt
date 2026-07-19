@@ -19,7 +19,6 @@ enum class BlockType(
     TIME_SCHEDULE(BlockCategory.TRIGGER, "Time Schedule", listOf("hour", "minute", "repeatDays")),
     BATTERY_LEVEL(BlockCategory.TRIGGER, "Battery Level", listOf("threshold", "direction")),
     DEVICE_CHARGING(BlockCategory.TRIGGER, "Charging State", listOf("state")),
-    NOTIFICATION_RECEIVED(BlockCategory.TRIGGER, "Notification Received", listOf("packageName", "textContains")),
     SCREEN_STATE(BlockCategory.TRIGGER, "Screen On/Off", listOf("state")),
 
     // --- Actions ---

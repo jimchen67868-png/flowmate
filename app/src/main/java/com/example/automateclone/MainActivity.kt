@@ -48,8 +48,5 @@ class MainActivity : ComponentActivity() {
             perms += Manifest.permission.POST_NOTIFICATIONS
         }
         requestPermissions.launch(perms.toTypedArray())
-        // Note: Notification-listener access (for NOTIFICATION_RECEIVED triggers)
-        // can't be requested at runtime — send the user to system settings:
-        // startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 }
