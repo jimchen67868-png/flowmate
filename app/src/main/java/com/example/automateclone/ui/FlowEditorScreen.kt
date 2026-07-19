@@ -1,18 +1,19 @@
 package com.example.automateclone.ui
 
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.automateclone.engine.FlowEngine
 import com.example.automateclone.model.AutomationFlow
@@ -23,6 +24,7 @@ import com.example.automateclone.ui.components.BlockConfigDialog
 import com.example.automateclone.ui.components.BlockNode
 import com.example.automateclone.ui.components.BlockPaletteSheet
 import com.example.automateclone.ui.components.ConnectionsCanvas
+import kotlin.math.roundToInt
 
 /**
  * The visual flow builder: a scrollable canvas where blocks are dragged
@@ -43,6 +45,8 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     var connectingFromId by remember { mutableStateOf<String?>(null) }
 
     fun persist() = repo.upsert(flow)
+
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
 
     Scaffold(
         topBar = {
@@ -67,10 +71,19 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .horizontalScroll(rememberScrollState())
-                .verticalScroll(rememberScrollState())
+                .clipToBounds()
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        panOffset += dragAmount
+                    }
+                }
         ) {
-            Box(modifier = Modifier.size(2000.dp)) {
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(panOffset.x.roundToInt(), panOffset.y.roundToInt()) }
+                    .size(2000.dp)
+            ) {
                 ConnectionsCanvas(flow = flow, density = density)
 
                 flow.blocks.forEach { block ->
