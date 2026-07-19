@@ -7,7 +7,6 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.telephony.SmsManager
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -18,7 +17,7 @@ import com.example.automateclone.model.BlockType
  * Runs the side effect for a single ACTION block. Each `when` branch reads
  * its params from Block.config (populated by the flow editor's config sheet).
  *
- * Note: SEND_SMS, POST_NOTIFICATIONS etc. require the corresponding runtime
+ * Note: POST_NOTIFICATIONS etc. require the corresponding runtime
  * permission to already be granted; permission requests are handled in the
  * UI layer (MainActivity), not here.
  */
@@ -28,10 +27,6 @@ object ActionExecutor {
 
     fun execute(context: Context, block: Block) {
         when (block.type) {
-            BlockType.SEND_SMS -> sendSms(
-                phoneNumber = block.config["phoneNumber"].orEmpty(),
-                message = block.config["message"].orEmpty()
-            )
             BlockType.SHOW_NOTIFICATION -> showNotification(
                 context,
                 title = block.config["title"] ?: "Flowmate",
@@ -51,12 +46,6 @@ object ActionExecutor {
             )
             else -> { /* not an action block; engine shouldn't call execute() for these */ }
         }
-    }
-
-    private fun sendSms(phoneNumber: String, message: String) {
-        if (phoneNumber.isBlank() || message.isBlank()) return
-        val smsManager = SmsManager.getDefault()
-        smsManager.sendTextMessage(phoneNumber, null, message, null, null)
     }
 
     private fun showNotification(context: Context, title: String, text: String) {
