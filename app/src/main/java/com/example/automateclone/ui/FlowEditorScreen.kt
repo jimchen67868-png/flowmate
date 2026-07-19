@@ -1,6 +1,8 @@
 package com.example.automateclone.ui
 
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -11,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
@@ -20,6 +23,8 @@ import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.model.Block
 import com.example.automateclone.model.Connection
 import com.example.automateclone.model.FlowRepository
+import com.example.automateclone.ui.components.BLOCK_HEIGHT
+import com.example.automateclone.ui.components.BLOCK_WIDTH
 import com.example.automateclone.ui.components.BlockConfigDialog
 import com.example.automateclone.ui.components.BlockNode
 import com.example.automateclone.ui.components.BlockPaletteSheet
@@ -73,9 +78,24 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                 .fillMaxSize()
                 .clipToBounds()
                 .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        panOffset += dragAmount
+                    val blockWidthPx = with(density) { BLOCK_WIDTH.toPx() }
+                    val blockHeightPx = with(density) { BLOCK_HEIGHT.toPx() }
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val touchedABlock = flow.blocks.any { b ->
+                            val left = panOffset.x + b.x
+                            val top = panOffset.y + b.y
+                            down.position.x in left..(left + blockWidthPx) &&
+                                down.position.y in top..(top + blockHeightPx)
+                        }
+                        // If the touch started on a block, don't engage panning at all —
+                        // let the block's own drag/tap/port gestures handle it uncontested.
+                        if (!touchedABlock) {
+                            drag(down.id) { change ->
+                                panOffset += change.positionChange()
+                                change.consume()
+                            }
+                        }
                     }
                 }
         ) {
