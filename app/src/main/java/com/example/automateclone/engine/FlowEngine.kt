@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
  */
 class FlowEngine(private val context: Context) {
 
-    fun runFrom(flow: AutomationFlow, triggerBlock: Block, scope: CoroutineScope = CoroutineScope(Dispatchers.Default)) {
+    fun runFrom(flow: AutomationFlow, triggerBlock: Block, scope: CoroutineScope = CoroutineScope(Dispatchers.Main)) {
         if (!flow.enabled) return
         scope.launch {
             val visited = mutableSetOf<String>()
