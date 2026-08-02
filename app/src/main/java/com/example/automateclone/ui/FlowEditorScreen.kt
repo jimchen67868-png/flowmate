@@ -72,7 +72,13 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                     }
                     IconButton(onClick = {
                         val trigger = flow.triggerBlocks().firstOrNull()
-                        if (trigger != null) engine.runFrom(flow, trigger)
+                        if (trigger != null) {
+                            engine.runFrom(flow, trigger)
+                        } else {
+                            android.widget.Toast.makeText(
+                                context, "Add a trigger block to start this flow", android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }) { Icon(Icons.Filled.PlayArrow, contentDescription = "Test run") }
                 }
             )
@@ -123,7 +129,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
 
-                            val hitBlock = flow.blocks.find { b ->
+                            val hitBlock = flow.blocks.asReversed().find { b ->
                                 val left = panOffset.x + b.x - portOffsetPx - portRadiusPx
                                 val top = panOffset.y + b.y
                                 val right = left + blockWidthPx + 2 * (portOffsetPx + portRadiusPx)
@@ -213,7 +219,10 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     if (showPalette) {
         BlockPaletteSheet(
             onPick = { type ->
-                flow.blocks.add(Block(type = type, x = 40f, y = 40f))
+                val index = flow.blocks.size
+                val spawnX = 40f + (index % 4) * 220f
+                val spawnY = 40f + (index / 4) * 160f
+                flow.blocks.add(Block(type = type, x = spawnX, y = spawnY))
                 flow = flow.copy(blocks = flow.blocks.toMutableList())
                 showPalette = false
                 persist()
