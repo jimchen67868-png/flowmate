@@ -203,8 +203,8 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                 }
                                 else -> {
                                     val portCy = panOffset.y + hitBlock.y + blockHeightPx / 2
-                                    val outputCx = panOffset.x + hitBlock.x + blockWidthPx + portOffsetPx
-                                    val inputCx = panOffset.x + hitBlock.x - portOffsetPx
+                                    val outputCx = panOffset.x + hitBlock.x + blockWidthPx
+                                    val inputCx = panOffset.x + hitBlock.x
                                     val onOutputPort = distSq(down.position.x, down.position.y, outputCx, portCy) <=
                                         portRadiusPx * portRadiusPx
                                     val onInputPort = hitBlock.type.category != BlockCategory.TRIGGER &&
@@ -280,8 +280,10 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
         BlockPaletteSheet(
             onPick = { type ->
                 val index = flow.blocks.size
-                val spawnX = 40f + (index % 4) * 220f
-                val spawnY = 40f + (index / 4) * 160f
+                val colGapPx = with(density) { (BLOCK_WIDTH + 60.dp).toPx() }
+                val rowGapPx = with(density) { (BLOCK_HEIGHT + 60.dp).toPx() }
+                val spawnX = 40f + (index % 4) * colGapPx
+                val spawnY = 40f + (index / 4) * rowGapPx
                 flow.blocks.add(Block(type = type, x = spawnX, y = spawnY))
                 flow = flow.copy(blocks = flow.blocks.toMutableList())
                 showPalette = false

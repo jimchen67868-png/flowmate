@@ -155,8 +155,8 @@ object FlowDsl {
             .toSortedMap()
             .forEach { (layerIdx, blocksInLayer) ->
                 blocksInLayer.forEachIndexed { i, b ->
-                    b.x = 40f + layerIdx * 260f
-                    b.y = 40f + i * 140f
+                    b.x = 40f + layerIdx * 700f
+                    b.y = 40f + i * 300f
                 }
             }
     }

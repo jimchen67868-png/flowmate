@@ -26,6 +26,19 @@ fun BlockConfigDialog(block: Block, onSave: (Map<String, String>) -> Unit, onDis
     val fields = remember { mutableStateMapOf<String, String>().apply { putAll(block.config) } }
     var showAppPicker by remember { mutableStateOf(false) }
 
+    if (showAppPicker) {
+        // Show ONLY the app picker while it's open — having the config dialog's
+        // dim scrim on screen at the same time blocks taps on the app list.
+        AppPickerDialog(
+            onPick = { packageName, _ ->
+                fields["packageName"] = packageName
+                showAppPicker = false
+            },
+            onDismiss = { showAppPicker = false }
+        )
+        return
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Configure ${block.type.displayName}") },
@@ -71,14 +84,4 @@ fun BlockConfigDialog(block: Block, onSave: (Map<String, String>) -> Unit, onDis
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
-
-    if (showAppPicker) {
-        AppPickerDialog(
-            onPick = { packageName, _ ->
-                fields["packageName"] = packageName
-                showAppPicker = false
-            },
-            onDismiss = { showAppPicker = false }
-        )
-    }
 }
