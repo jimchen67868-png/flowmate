@@ -18,7 +18,7 @@ import com.example.automateclone.model.FlowRepository
 fun FlowListScreen(onOpenFlow: (AutomationFlow) -> Unit) {
     val context = LocalContext.current
     val repo = remember { FlowRepository(context) }
-    var flows by remember { mutableStateOf(repo.loadAll()) }
+    var flows by remember { mutableStateOf(repo.loadAll(), policy = referentialEqualityPolicy()) }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Flowmate") }) },

@@ -41,7 +41,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     val repo = remember { FlowRepository(context) }
     val engine = remember { FlowEngine(context) }
 
-    var flow by remember { mutableStateOf(initialFlow) }
+    var flow by remember { mutableStateOf(initialFlow, policy = referentialEqualityPolicy()) }
     var showPalette by remember { mutableStateOf(false) }
     var editingBlock by remember { mutableStateOf<Block?>(null) }
     var connectingFromId by remember { mutableStateOf<String?>(null) }
