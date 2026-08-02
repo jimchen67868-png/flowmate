@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.example.automateclone.engine.FlowEngine
 import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.model.Block
+import com.example.automateclone.model.BlockCategory
 import com.example.automateclone.model.Connection
 import com.example.automateclone.model.FlowDsl
 import com.example.automateclone.model.FlowRepository
@@ -110,18 +111,53 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                     .pointerInput(Unit) {
                         val blockWidthPx = with(density) { BLOCK_WIDTH.toPx() }
                         val blockHeightPx = with(density) { BLOCK_HEIGHT.toPx() }
+                        val portRadiusPx = with(density) { 14.dp.toPx() }
+                        val portOffsetPx = with(density) { 8.dp.toPx() }
+
+                        fun distSq(ax: Float, ay: Float, bx: Float, by: Float): Float {
+                            val dx = ax - bx
+                            val dy = ay - by
+                            return dx * dx + dy * dy
+                        }
+
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
-                            val touchedABlock = flow.blocks.any { b ->
-                                val left = panOffset.x + b.x
+
+                            val hitBlock = flow.blocks.find { b ->
+                                val left = panOffset.x + b.x - portOffsetPx - portRadiusPx
                                 val top = panOffset.y + b.y
-                                down.position.x in left..(left + blockWidthPx) &&
-                                    down.position.y in top..(top + blockHeightPx)
+                                val right = left + blockWidthPx + 2 * (portOffsetPx + portRadiusPx)
+                                val bottom = top + blockHeightPx
+                                down.position.x in left..right && down.position.y in top..bottom
                             }
-                            if (!touchedABlock) {
-                                drag(down.id) { change ->
-                                    panOffset += change.positionChange()
-                                    change.consume()
+
+                            when {
+                                hitBlock == null -> {
+                                    drag(down.id) { change ->
+                                        panOffset += change.positionChange()
+                                        change.consume()
+                                    }
+                                }
+                                else -> {
+                                    val portCy = panOffset.y + hitBlock.y + blockHeightPx / 2
+                                    val outputCx = panOffset.x + hitBlock.x + blockWidthPx + portOffsetPx
+                                    val inputCx = panOffset.x + hitBlock.x - portOffsetPx
+                                    val onOutputPort = distSq(down.position.x, down.position.y, outputCx, portCy) <=
+                                        portRadiusPx * portRadiusPx
+                                    val onInputPort = hitBlock.type.category != BlockCategory.TRIGGER &&
+                                        distSq(down.position.x, down.position.y, inputCx, portCy) <= portRadiusPx * portRadiusPx
+
+                                    if (onOutputPort || onInputPort) {
+                                        // Leave it to the port's own tap detector.
+                                    } else {
+                                        drag(down.id) { change ->
+                                            val delta = change.positionChange()
+                                            hitBlock.x += delta.x
+                                            hitBlock.y += delta.y
+                                            flow = flow.copy(blocks = flow.blocks.toMutableList())
+                                            change.consume()
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -144,11 +180,6 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                             BlockNode(
                                 block = block,
                                 isConnecting = connectingFromId == block.id,
-                                onDrag = { delta ->
-                                    block.x += delta.x
-                                    block.y += delta.y
-                                    flow = flow.copy(blocks = flow.blocks.toMutableList())
-                                },
                                 onTapOutputPort = {
                                     connectingFromId = block.id
                                 },
