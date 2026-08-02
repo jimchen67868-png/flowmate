@@ -33,6 +33,7 @@ import com.example.automateclone.ui.components.BlockPaletteSheet
 import com.example.automateclone.ui.components.CodeEditorScreen
 import com.example.automateclone.ui.components.ConnectionsCanvas
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 @Composable
 fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
@@ -45,6 +46,9 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     var showPalette by remember { mutableStateOf(false) }
     var editingBlock by remember { mutableStateOf<Block?>(null) }
     var connectingFromId by remember { mutableStateOf<String?>(null) }
+
+    var selectMode by remember { mutableStateOf(false) }
+    var selectedIds by remember { mutableStateOf(setOf<String>()) }
 
     fun persist() = repo.upsert(flow)
 
@@ -64,27 +68,47 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(flow.name) },
+                title = { Text(if (selectMode) "${selectedIds.size} selected" else flow.name) },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
                 actions = {
-                    TextButton(onClick = { showCode = !showCode }) {
-                        Text(if (showCode) "Visual" else "Code")
-                    }
-                    IconButton(onClick = {
-                        val trigger = flow.triggerBlocks().firstOrNull()
-                        if (trigger != null) {
-                            engine.runFrom(flow, trigger)
-                        } else {
-                            android.widget.Toast.makeText(
-                                context, "Add a trigger block to start this flow", android.widget.Toast.LENGTH_SHORT
-                            ).show()
+                    if (selectMode) {
+                        if (selectedIds.isNotEmpty()) {
+                            TextButton(onClick = {
+                                flow.blocks.removeAll { it.id in selectedIds }
+                                flow.connections.removeAll { it.fromBlockId in selectedIds || it.toBlockId in selectedIds }
+                                flow = flow.copy(
+                                    blocks = flow.blocks.toMutableList(),
+                                    connections = flow.connections.toMutableList()
+                                )
+                                selectedIds = emptySet()
+                                persist()
+                            }) { Text("Delete") }
                         }
-                    }) { Icon(Icons.Filled.PlayArrow, contentDescription = "Test run") }
+                        TextButton(onClick = {
+                            selectMode = false
+                            selectedIds = emptySet()
+                        }) { Text("Done") }
+                    } else {
+                        TextButton(onClick = { selectMode = true }) { Text("Select") }
+                        TextButton(onClick = { showCode = !showCode }) {
+                            Text(if (showCode) "Visual" else "Code")
+                        }
+                        IconButton(onClick = {
+                            val trigger = flow.triggerBlocks().firstOrNull()
+                            if (trigger != null) {
+                                engine.runFrom(flow, trigger)
+                            } else {
+                                android.widget.Toast.makeText(
+                                    context, "Add a trigger block to start this flow", android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }) { Icon(Icons.Filled.PlayArrow, contentDescription = "Test run") }
+                    }
                 }
             )
         },
         floatingActionButton = {
-            if (!showCode) {
+            if (!showCode && !selectMode) {
                 FloatingActionButton(onClick = { showPalette = true }) {
                     Icon(Icons.Filled.Add, contentDescription = "Add block")
                 }
@@ -114,11 +138,12 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                     .padding(padding)
                     .fillMaxSize()
                     .clipToBounds()
-                    .pointerInput(Unit) {
+                    .pointerInput(selectMode) {
                         val blockWidthPx = with(density) { BLOCK_WIDTH.toPx() }
                         val blockHeightPx = with(density) { BLOCK_HEIGHT.toPx() }
                         val portRadiusPx = with(density) { 14.dp.toPx() }
                         val portOffsetPx = with(density) { 8.dp.toPx() }
+                        val tapSlopPx = with(density) { 8.dp.toPx() }
 
                         fun distSq(ax: Float, ay: Float, bx: Float, by: Float): Float {
                             val dx = ax - bx
@@ -142,6 +167,38 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                     drag(down.id) { change ->
                                         panOffset += change.positionChange()
                                         change.consume()
+                                    }
+                                }
+                                selectMode -> {
+                                    var accumulated = Offset.Zero
+                                    var isDragging = false
+                                    val idsToMove = if (hitBlock.id in selectedIds) selectedIds else selectedIds + hitBlock.id
+
+                                    drag(down.id) { change ->
+                                        val delta = change.positionChange()
+                                        accumulated += delta
+                                        if (!isDragging && sqrt(accumulated.x * accumulated.x + accumulated.y * accumulated.y) > tapSlopPx) {
+                                            isDragging = true
+                                            flow.blocks.filter { it.id in idsToMove }
+                                                .forEach { b -> b.x += accumulated.x; b.y += accumulated.y }
+                                            flow = flow.copy(blocks = flow.blocks.toMutableList())
+                                        } else if (isDragging) {
+                                            flow.blocks.filter { it.id in idsToMove }
+                                                .forEach { b -> b.x += delta.x; b.y += delta.y }
+                                            flow = flow.copy(blocks = flow.blocks.toMutableList())
+                                        }
+                                        change.consume()
+                                    }
+
+                                    if (isDragging) {
+                                        if (hitBlock.id !in selectedIds) selectedIds = selectedIds + hitBlock.id
+                                        persist()
+                                    } else {
+                                        selectedIds = if (hitBlock.id in selectedIds) {
+                                            selectedIds - hitBlock.id
+                                        } else {
+                                            selectedIds + hitBlock.id
+                                        }
                                     }
                                 }
                                 else -> {
@@ -186,19 +243,22 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                             BlockNode(
                                 block = block,
                                 isConnecting = connectingFromId == block.id,
+                                isSelected = block.id in selectedIds,
                                 onTapOutputPort = {
-                                    connectingFromId = block.id
+                                    if (!selectMode) connectingFromId = block.id
                                 },
                                 onTapInputPort = {
-                                    val fromId = connectingFromId
-                                    if (fromId != null && fromId != block.id) {
-                                        flow.connections.add(Connection(fromBlockId = fromId, toBlockId = block.id))
-                                        flow = flow.copy(connections = flow.connections.toMutableList())
-                                        connectingFromId = null
-                                        persist()
+                                    if (!selectMode) {
+                                        val fromId = connectingFromId
+                                        if (fromId != null && fromId != block.id) {
+                                            flow.connections.add(Connection(fromBlockId = fromId, toBlockId = block.id))
+                                            flow = flow.copy(connections = flow.connections.toMutableList())
+                                            connectingFromId = null
+                                            persist()
+                                        }
                                     }
                                 },
-                                onEdit = { editingBlock = block },
+                                onEdit = { if (!selectMode) editingBlock = block },
                                 onDelete = {
                                     flow.blocks.remove(block)
                                     flow.connections.removeAll { it.fromBlockId == block.id || it.toBlockId == block.id }

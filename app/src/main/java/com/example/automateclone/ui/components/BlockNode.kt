@@ -26,25 +26,19 @@ val BLOCK_WIDTH = 180.dp
 val BLOCK_HEIGHT = 76.dp
 val PORT_SIZE = 16.dp
 
+private val SelectionColor = Color(0xFF1976D2)
+
 private fun categoryColor(category: BlockCategory): Color = when (category) {
     BlockCategory.TRIGGER -> Color(0xFF2E7D32)
     BlockCategory.ACTION -> Color(0xFF1565C0)
     BlockCategory.LOGIC -> Color(0xFFEF6C00)
 }
 
-/**
- * A single block on the flow canvas.
- *
- * Dragging is NOT handled here — the canvas (FlowEditorScreen) hit-tests each
- * touch once, up front, and decides whether it landed on a port, a block
- * body, or empty space, then owns the whole gesture from there. This
- * composable only handles taps that are purely local: the port circles
- * (connect) and the gear/close icon buttons (edit/delete).
- */
 @Composable
 fun BlockNode(
     block: Block,
     isConnecting: Boolean,
+    isSelected: Boolean = false,
     onTapOutputPort: () -> Unit,
     onTapInputPort: () -> Unit,
     onEdit: () -> Unit,
@@ -59,8 +53,17 @@ fun BlockNode(
         Card(
             modifier = Modifier.fillMaxSize(),
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.15f)),
-            border = BorderStroke(1.5.dp, if (isConnecting) Color.Red else color)
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected) SelectionColor.copy(alpha = 0.18f) else color.copy(alpha = 0.15f)
+            ),
+            border = BorderStroke(
+                width = if (isSelected) 3.dp else 1.5.dp,
+                color = when {
+                    isConnecting -> Color.Red
+                    isSelected -> SelectionColor
+                    else -> color
+                }
+            )
         ) {
             Column(Modifier.padding(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
