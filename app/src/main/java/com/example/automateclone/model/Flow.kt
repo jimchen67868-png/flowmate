@@ -2,11 +2,6 @@ package com.example.automateclone.model
 
 import java.util.UUID
 
-/**
- * A single node on the canvas: a trigger, action, or logic block.
- * `x`/`y` are canvas coordinates (top-left of the block), used for dragging.
- * `config` holds the user-entered values for BlockType.configKeys.
- */
 data class Block(
     val id: String = UUID.randomUUID().toString(),
     val type: BlockType,
@@ -15,20 +10,12 @@ data class Block(
     val config: MutableMap<String, String> = mutableMapOf()
 )
 
-/**
- * A directed edge from one block's output to another block's input.
- * Flows execute by following connections starting at trigger blocks.
- */
 data class Connection(
     val id: String = UUID.randomUUID().toString(),
     val fromBlockId: String,
     val toBlockId: String
 )
 
-/**
- * A complete automation graph: the blocks placed on the canvas and the
- * connections between them. Saved/loaded as JSON (see FlowRepository).
- */
 data class AutomationFlow(
     val id: String = UUID.randomUUID().toString(),
     var name: String = "New Flow",
@@ -41,4 +28,13 @@ data class AutomationFlow(
             .mapNotNull { conn -> blocks.find { it.id == conn.toBlockId } }
 
     fun triggerBlocks(): List<Block> = blocks.filter { it.type.category == BlockCategory.TRIGGER }
+
+    /**
+     * A genuinely independent copy — every Block and its config map are
+     * cloned too, not just the outer lists. Needed for undo/redo snapshots.
+     */
+    fun deepCopy(): AutomationFlow = copy(
+        blocks = blocks.map { it.copy(config = it.config.toMutableMap()) }.toMutableList(),
+        connections = connections.map { it.copy() }.toMutableList()
+    )
 }

@@ -35,6 +35,8 @@ import com.example.automateclone.ui.components.ConnectionsCanvas
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
+private const val MAX_UNDO_HISTORY = 30
+
 @Composable
 fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -46,11 +48,36 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     var showPalette by remember { mutableStateOf(false) }
     var editingBlock by remember { mutableStateOf<Block?>(null) }
     var connectingFromId by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteBlock by remember { mutableStateOf<Block?>(null) }
+    var pendingBulkDelete by remember { mutableStateOf(false) }
 
     var selectMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
 
+    val undoStack = remember { mutableStateListOf<AutomationFlow>() }
+    val redoStack = remember { mutableStateListOf<AutomationFlow>() }
+
     fun persist() = repo.upsert(flow)
+
+    fun snapshotForUndo() {
+        undoStack.add(flow.deepCopy())
+        if (undoStack.size > MAX_UNDO_HISTORY) undoStack.removeAt(0)
+        redoStack.clear()
+    }
+
+    fun undo() {
+        if (undoStack.isEmpty()) return
+        redoStack.add(flow.deepCopy())
+        flow = undoStack.removeAt(undoStack.lastIndex)
+        persist()
+    }
+
+    fun redo() {
+        if (redoStack.isEmpty()) return
+        undoStack.add(flow.deepCopy())
+        flow = redoStack.removeAt(redoStack.lastIndex)
+        persist()
+    }
 
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
@@ -73,22 +100,19 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                 actions = {
                     if (selectMode) {
                         if (selectedIds.isNotEmpty()) {
-                            TextButton(onClick = {
-                                flow.blocks.removeAll { it.id in selectedIds }
-                                flow.connections.removeAll { it.fromBlockId in selectedIds || it.toBlockId in selectedIds }
-                                flow = flow.copy(
-                                    blocks = flow.blocks.toMutableList(),
-                                    connections = flow.connections.toMutableList()
-                                )
-                                selectedIds = emptySet()
-                                persist()
-                            }) { Text("Delete") }
+                            TextButton(onClick = { pendingBulkDelete = true }) { Text("Delete") }
                         }
                         TextButton(onClick = {
                             selectMode = false
                             selectedIds = emptySet()
                         }) { Text("Done") }
                     } else {
+                        if (undoStack.isNotEmpty()) {
+                            TextButton(onClick = { undo() }) { Text("Undo") }
+                        }
+                        if (redoStack.isNotEmpty()) {
+                            TextButton(onClick = { redo() }) { Text("Redo") }
+                        }
                         TextButton(onClick = { selectMode = true }) { Text("Select") }
                         TextButton(onClick = { showCode = !showCode }) {
                             Text(if (showCode) "Visual" else "Code")
@@ -122,7 +146,9 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                 error = codeError,
                 onApply = {
                     try {
-                        flow = FlowDsl.parse(codeText, existingId = flow.id)
+                        val parsed = FlowDsl.parse(codeText, existingId = flow.id)
+                        snapshotForUndo()
+                        flow = parsed
                         persist()
                         codeError = null
                         showCode = false
@@ -172,6 +198,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                 selectMode -> {
                                     var accumulated = Offset.Zero
                                     var isDragging = false
+                                    var snapshotted = false
                                     val idsToMove = if (hitBlock.id in selectedIds) selectedIds else selectedIds + hitBlock.id
 
                                     drag(down.id) { change ->
@@ -179,6 +206,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                         accumulated += delta
                                         if (!isDragging && sqrt(accumulated.x * accumulated.x + accumulated.y * accumulated.y) > tapSlopPx) {
                                             isDragging = true
+                                            if (!snapshotted) { snapshotForUndo(); snapshotted = true }
                                             flow.blocks.filter { it.id in idsToMove }
                                                 .forEach { b -> b.x += accumulated.x; b.y += accumulated.y }
                                             flow = flow.copy(blocks = flow.blocks.toMutableList())
@@ -213,7 +241,9 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                     if (onOutputPort || onInputPort) {
                                         // Leave it to the port's own tap detector.
                                     } else {
+                                        var snapshotted = false
                                         drag(down.id) { change ->
+                                            if (!snapshotted) { snapshotForUndo(); snapshotted = true }
                                             val delta = change.positionChange()
                                             hitBlock.x += delta.x
                                             hitBlock.y += delta.y
@@ -251,6 +281,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                     if (!selectMode) {
                                         val fromId = connectingFromId
                                         if (fromId != null && fromId != block.id) {
+                                            snapshotForUndo()
                                             flow.connections.add(Connection(fromBlockId = fromId, toBlockId = block.id))
                                             flow = flow.copy(connections = flow.connections.toMutableList())
                                             connectingFromId = null
@@ -259,15 +290,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                     }
                                 },
                                 onEdit = { if (!selectMode) editingBlock = block },
-                                onDelete = {
-                                    flow.blocks.remove(block)
-                                    flow.connections.removeAll { it.fromBlockId == block.id || it.toBlockId == block.id }
-                                    flow = flow.copy(
-                                        blocks = flow.blocks.toMutableList(),
-                                        connections = flow.connections.toMutableList()
-                                    )
-                                    persist()
-                                }
+                                onDelete = { pendingDeleteBlock = block }
                             )
                         }
                     }
@@ -284,6 +307,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                 val rowGapPx = with(density) { (BLOCK_HEIGHT + 60.dp).toPx() }
                 val spawnX = 40f + (index % 4) * colGapPx
                 val spawnY = 40f + (index / 4) * rowGapPx
+                snapshotForUndo()
                 flow.blocks.add(Block(type = type, x = spawnX, y = spawnY))
                 flow = flow.copy(blocks = flow.blocks.toMutableList())
                 showPalette = false
@@ -297,6 +321,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
         BlockConfigDialog(
             block = block,
             onSave = { newConfig ->
+                snapshotForUndo()
                 block.config.clear()
                 block.config.putAll(newConfig)
                 flow = flow.copy(blocks = flow.blocks.toMutableList())
@@ -304,6 +329,55 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                 persist()
             },
             onDismiss = { editingBlock = null }
+        )
+    }
+
+    pendingDeleteBlock?.let { block ->
+        AlertDialog(
+            onDismissRequest = { pendingDeleteBlock = null },
+            title = { Text("Delete block?") },
+            text = { Text("Delete \"${block.type.displayName}\" and any connections to it? This can be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    snapshotForUndo()
+                    flow.blocks.remove(block)
+                    flow.connections.removeAll { it.fromBlockId == block.id || it.toBlockId == block.id }
+                    flow = flow.copy(
+                        blocks = flow.blocks.toMutableList(),
+                        connections = flow.connections.toMutableList()
+                    )
+                    persist()
+                    pendingDeleteBlock = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteBlock = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (pendingBulkDelete) {
+        AlertDialog(
+            onDismissRequest = { pendingBulkDelete = false },
+            title = { Text("Delete ${selectedIds.size} blocks?") },
+            text = { Text("This removes the selected blocks and any connections to them. This can be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    snapshotForUndo()
+                    flow.blocks.removeAll { it.id in selectedIds }
+                    flow.connections.removeAll { it.fromBlockId in selectedIds || it.toBlockId in selectedIds }
+                    flow = flow.copy(
+                        blocks = flow.blocks.toMutableList(),
+                        connections = flow.connections.toMutableList()
+                    )
+                    selectedIds = emptySet()
+                    persist()
+                    pendingBulkDelete = false
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingBulkDelete = false }) { Text("Cancel") }
+            }
         )
     }
 }
