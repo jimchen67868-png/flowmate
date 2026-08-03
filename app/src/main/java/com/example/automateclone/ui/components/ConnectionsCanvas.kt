@@ -11,12 +11,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.automateclone.model.AutomationFlow
 
-/**
- * Draws a curved line from each block's output port to its connected block's
- * input port. Positioned as a full-size background layer under the block cards.
- */
 @Composable
-fun ConnectionsCanvas(flow: AutomationFlow, density: Density) {
+fun ConnectionsCanvas(flow: AutomationFlow, density: Density, selectedConnectionId: String? = null) {
     val blockWidthPx = with(density) { BLOCK_WIDTH.toPx() }
     val blockHeightPx = with(density) { BLOCK_HEIGHT.toPx() }
 
@@ -33,7 +29,12 @@ fun ConnectionsCanvas(flow: AutomationFlow, density: Density) {
                 moveTo(start.x, start.y)
                 cubicTo(midX, start.y, midX, end.y, end.x, end.y)
             }
-            drawPath(path, color = Color(0xFF9575CD), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f))
+            val isSelected = conn.id == selectedConnectionId
+            drawPath(
+                path,
+                color = if (isSelected) Color(0xFFD32F2F) else Color(0xFF9575CD),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isSelected) 7f else 4f)
+            )
         }
     }
 }

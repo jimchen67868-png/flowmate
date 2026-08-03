@@ -50,9 +50,13 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     var connectingFromId by remember { mutableStateOf<String?>(null) }
     var pendingDeleteBlock by remember { mutableStateOf<Block?>(null) }
     var pendingBulkDelete by remember { mutableStateOf(false) }
+    var selectedConnectionId by remember { mutableStateOf<String?>(null) }
 
     var selectMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<String>()) }
+
+    var clipboardBlocks by remember { mutableStateOf<List<Block>>(emptyList()) }
+    var clipboardConnections by remember { mutableStateOf<List<Connection>>(emptyList()) }
 
     val undoStack = remember { mutableStateListOf<AutomationFlow>() }
     val redoStack = remember { mutableStateListOf<AutomationFlow>() }
@@ -79,6 +83,37 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
         persist()
     }
 
+    fun copySelectedToClipboard() {
+        clipboardBlocks = flow.blocks.filter { it.id in selectedIds }
+            .map { it.copy(config = it.config.toMutableMap()) }
+        clipboardConnections = flow.connections.filter { it.fromBlockId in selectedIds && it.toBlockId in selectedIds }
+        android.widget.Toast.makeText(
+            context, "Copied ${clipboardBlocks.size} block(s)", android.widget.Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    fun pasteClipboard() {
+        if (clipboardBlocks.isEmpty()) return
+        snapshotForUndo()
+        val idMap = mutableMapOf<String, String>()
+        val newBlocks = clipboardBlocks.map { old ->
+            val newBlock = Block(type = old.type, x = old.x + 60f, y = old.y + 60f, config = old.config.toMutableMap())
+            idMap[old.id] = newBlock.id
+            newBlock
+        }
+        val newConnections = clipboardConnections.mapNotNull { conn ->
+            val fromNew = idMap[conn.fromBlockId]
+            val toNew = idMap[conn.toBlockId]
+            if (fromNew != null && toNew != null) Connection(fromBlockId = fromNew, toBlockId = toNew) else null
+        }
+        flow.blocks.addAll(newBlocks)
+        flow.connections.addAll(newConnections)
+        flow = flow.copy(blocks = flow.blocks.toMutableList(), connections = flow.connections.toMutableList())
+        selectedIds = newBlocks.map { it.id }.toSet()
+        selectMode = true
+        persist()
+    }
+
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
     var showCode by remember { mutableStateOf(false) }
@@ -100,6 +135,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                 actions = {
                     if (selectMode) {
                         if (selectedIds.isNotEmpty()) {
+                            TextButton(onClick = { copySelectedToClipboard() }) { Text("Copy") }
                             TextButton(onClick = { pendingBulkDelete = true }) { Text("Delete") }
                         }
                         TextButton(onClick = {
@@ -112,6 +148,9 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                         }
                         if (redoStack.isNotEmpty()) {
                             TextButton(onClick = { redo() }) { Text("Redo") }
+                        }
+                        if (clipboardBlocks.isNotEmpty()) {
+                            TextButton(onClick = { pasteClipboard() }) { Text("Paste") }
                         }
                         TextButton(onClick = { selectMode = true }) { Text("Select") }
                         TextButton(onClick = { showCode = !showCode }) {
@@ -170,11 +209,38 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                         val portRadiusPx = with(density) { 14.dp.toPx() }
                         val portOffsetPx = with(density) { 8.dp.toPx() }
                         val tapSlopPx = with(density) { 8.dp.toPx() }
+                        val connectionTapRadiusPx = with(density) { 20.dp.toPx() }
 
                         fun distSq(ax: Float, ay: Float, bx: Float, by: Float): Float {
                             val dx = ax - bx
                             val dy = ay - by
                             return dx * dx + dy * dy
+                        }
+
+                        fun findNearbyConnection(pos: Offset): Connection? {
+                            return flow.connections.find { conn ->
+                                val from = flow.blocks.find { it.id == conn.fromBlockId } ?: return@find false
+                                val to = flow.blocks.find { it.id == conn.toBlockId } ?: return@find false
+                                val p0x = panOffset.x + from.x + blockWidthPx
+                                val p0y = panOffset.y + from.y + blockHeightPx / 2
+                                val p3x = panOffset.x + to.x
+                                val p3y = panOffset.y + to.y + blockHeightPx / 2
+                                val midX = (p0x + p3x) / 2
+                                val p1x = midX; val p1y = p0y
+                                val p2x = midX; val p2y = p3y
+
+                                var minDistSq = Float.MAX_VALUE
+                                var t = 0f
+                                while (t <= 1f) {
+                                    val mt = 1 - t
+                                    val x = mt * mt * mt * p0x + 3 * mt * mt * t * p1x + 3 * mt * t * t * p2x + t * t * t * p3x
+                                    val y = mt * mt * mt * p0y + 3 * mt * mt * t * p1y + 3 * mt * t * t * p2y + t * t * t * p3y
+                                    val d = distSq(x, y, pos.x, pos.y)
+                                    if (d < minDistSq) minDistSq = d
+                                    t += 0.05f
+                                }
+                                minDistSq <= connectionTapRadiusPx * connectionTapRadiusPx
+                            }
                         }
 
                         awaitEachGesture {
@@ -190,9 +256,18 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
 
                             when {
                                 hitBlock == null -> {
-                                    drag(down.id) { change ->
-                                        panOffset += change.positionChange()
-                                        change.consume()
+                                    val nearConnection = if (!selectMode) findNearbyConnection(down.position) else null
+                                    if (nearConnection != null) {
+                                        var accumulated = Offset.Zero
+                                        drag(down.id) { change -> accumulated += change.positionChange() }
+                                        if (sqrt(accumulated.x * accumulated.x + accumulated.y * accumulated.y) <= tapSlopPx) {
+                                            selectedConnectionId = nearConnection.id
+                                        }
+                                    } else {
+                                        drag(down.id) { change ->
+                                            panOffset += change.positionChange()
+                                            change.consume()
+                                        }
                                     }
                                 }
                                 selectMode -> {
@@ -261,7 +336,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                         .offset { IntOffset(panOffset.x.roundToInt(), panOffset.y.roundToInt()) }
                         .size(2000.dp)
                 ) {
-                    ConnectionsCanvas(flow = flow, density = density)
+                    ConnectionsCanvas(flow = flow, density = density, selectedConnectionId = selectedConnectionId)
 
                     flow.blocks.forEach { block ->
                         Box(
@@ -377,6 +452,26 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { pendingBulkDelete = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    selectedConnectionId?.let { connId ->
+        AlertDialog(
+            onDismissRequest = { selectedConnectionId = null },
+            title = { Text("Delete this connection?") },
+            text = { Text("This removes the link between these two blocks. This can be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    snapshotForUndo()
+                    flow.connections.removeAll { it.id == connId }
+                    flow = flow.copy(connections = flow.connections.toMutableList())
+                    persist()
+                    selectedConnectionId = null
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedConnectionId = null }) { Text("Cancel") }
             }
         )
     }
