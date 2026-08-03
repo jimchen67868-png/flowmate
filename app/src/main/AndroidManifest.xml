@@ -9,8 +9,8 @@
     <uses-permission android:name="android.permission.BATTERY_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
 
-    <!-- Needed on Android 11+ to see other installed apps for the Launch App picker. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -35,7 +35,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Battery / device-state trigger, runs as foreground service -->
         <service
             android:name=".triggers.DeviceStateTriggerService"
             android:exported="false"
@@ -45,7 +44,6 @@
                 android:value="device_state_monitoring" />
         </service>
 
-        <!-- Restarts scheduled flows after reboot -->
         <receiver
             android:name=".triggers.BootReceiver"
             android:exported="true">
@@ -53,6 +51,18 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name=".actions.TapAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/tap_accessibility_service_config" />
+        </service>
 
     </application>
 </manifest>
