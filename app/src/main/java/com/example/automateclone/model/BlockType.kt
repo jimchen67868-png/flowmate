@@ -7,6 +7,7 @@ enum class BlockType(
     val displayName: String,
     val configKeys: List<String> = emptyList()
 ) {
+    MANUAL_START(BlockCategory.TRIGGER, "Flow Beginning"),
     TIME_SCHEDULE(BlockCategory.TRIGGER, "Time Schedule", listOf("hour", "minute", "repeatDays")),
     BATTERY_LEVEL(BlockCategory.TRIGGER, "Battery Level", listOf("threshold", "direction")),
     DEVICE_CHARGING(BlockCategory.TRIGGER, "Charging State", listOf("state")),

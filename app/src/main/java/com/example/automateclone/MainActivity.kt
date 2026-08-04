@@ -1,9 +1,12 @@
 package com.example.automateclone
 
 import android.Manifest
+import android.app.AlarmManager
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,13 +23,14 @@ class MainActivity : ComponentActivity() {
 
     private val requestPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* results not individually branched on for this MVP */ }
+    ) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         requestRuntimePermissions()
-        TimeTriggerScheduler.ensureScheduled(this)
+        requestExactAlarmPermissionIfNeeded()
+        TimeTriggerScheduler.rescheduleNextAlarm(this)
         ContextCompat.startForegroundService(this, Intent(this, DeviceStateTriggerService::class.java))
 
         setContent {
@@ -43,10 +47,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestRuntimePermissions() {
-        val perms = mutableListOf(Manifest.permission.SEND_SMS, Manifest.permission.VIBRATE)
+        val perms = mutableListOf(Manifest.permission.VIBRATE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             perms += Manifest.permission.POST_NOTIFICATIONS
         }
         requestPermissions.launch(perms.toTypedArray())
+    }
+
+    private fun requestExactAlarmPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmManager = getSystemService(AlarmManager::class.java)
+            if (!alarmManager.canScheduleExactAlarms()) {
+                startActivity(
+                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:$packageName"))
+                )
+            }
+        }
     }
 }

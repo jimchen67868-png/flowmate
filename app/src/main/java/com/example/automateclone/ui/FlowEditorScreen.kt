@@ -180,7 +180,8 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                             Text(if (showLog) "Editor" else "Log")
                         }
                         IconButton(onClick = {
-                            val trigger = flow.triggerBlocks().firstOrNull()
+                            val trigger = flow.triggerBlocks().find { it.type == com.example.automateclone.model.BlockType.MANUAL_START }
+                                ?: flow.triggerBlocks().firstOrNull()
                             if (trigger != null) {
                                 val job = engine.runFrom(flow, trigger)
                                 runningJob = job

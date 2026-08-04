@@ -52,6 +52,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".triggers.TimeAlarmReceiver"
+            android:exported="false" />
+
         <service
             android:name=".actions.TapAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"

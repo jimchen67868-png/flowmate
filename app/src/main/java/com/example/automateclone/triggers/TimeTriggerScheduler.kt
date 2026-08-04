@@ -1,59 +1,68 @@
 package com.example.automateclone.triggers
 
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.content.Context
-import androidx.work.Constraints
-import androidx.work.CoroutineWorker
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import com.example.automateclone.engine.FlowEngine
+import android.content.Intent
+import android.os.Build
 import com.example.automateclone.model.BlockType
 import com.example.automateclone.model.FlowRepository
 import java.util.Calendar
-import java.util.concurrent.TimeUnit
 
-/**
- * Schedules a recurring WorkManager job that checks every 15 minutes
- * (WorkManager's minimum periodic interval) whether any TIME_SCHEDULE
- * trigger block matches the current hour/minute, and fires it if so.
- *
- * For minute-precision alarms, swap this for AlarmManager.setExactAndAllowWhileIdle
- * per-flow; this polling approach is simpler and battery-friendlier as a default.
- */
 object TimeTriggerScheduler {
-    private const val WORK_NAME = "flowmate_time_trigger_check"
+    private const val REQUEST_CODE = 9001
+    private val DAY_CODES = listOf("SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT")
 
-    fun ensureScheduled(context: Context) {
-        val request = PeriodicWorkRequestBuilder<TimeCheckWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(Constraints.NONE)
-            .build()
-        WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
-    }
-}
-
-class TimeCheckWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-    override suspend fun doWork(): Result {
-        val now = Calendar.getInstance()
-        val hour = now.get(Calendar.HOUR_OF_DAY)
-        val minute = now.get(Calendar.MINUTE)
-        val dayCode = "SUN,MON,TUE,WED,THU,FRI,SAT".split(",")[now.get(Calendar.DAY_OF_WEEK) - 1]
-
-        val repo = FlowRepository(applicationContext)
-        val engine = FlowEngine(applicationContext)
+    fun rescheduleNextAlarm(context: Context) {
+        val repo = FlowRepository(context)
+        var earliest: Calendar? = null
 
         repo.loadAll().filter { it.enabled }.forEach { flow ->
-            flow.triggerBlocks()
-                .filter { it.type == BlockType.TIME_SCHEDULE }
-                .filter { trigger ->
-                    val h = trigger.config["hour"]?.toIntOrNull() ?: return@filter false
-                    val m = trigger.config["minute"]?.toIntOrNull() ?: return@filter false
-                    val days = trigger.config["repeatDays"].orEmpty()
-                    h == hour && m == minute && (days.isBlank() || days.contains(dayCode))
-                }
-                .forEach { trigger -> engine.runFrom(flow, trigger) }
+            flow.triggerBlocks().filter { it.type == BlockType.TIME_SCHEDULE }.forEach { trigger ->
+                val hour = trigger.config["hour"]?.toIntOrNull() ?: return@forEach
+                val minute = trigger.config["minute"]?.toIntOrNull() ?: return@forEach
+                val repeatDays = trigger.config["repeatDays"].orEmpty()
+                val next = nextOccurrence(hour, minute, repeatDays)
+                if (earliest == null || next.before(earliest)) earliest = next
+            }
         }
-        return Result.success()
+
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQUEST_CODE,
+            Intent(context, TimeAlarmReceiver::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val target = earliest
+        if (target == null) {
+            alarmManager.cancel(pendingIntent)
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            return
+        }
+
+        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, target.timeInMillis, pendingIntent)
+    }
+
+    private fun nextOccurrence(hour: Int, minute: Int, repeatDays: String): Calendar {
+        val now = Calendar.getInstance()
+        val base = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        for (offset in 0..7) {
+            val candidate = base.clone() as Calendar
+            candidate.add(Calendar.DAY_OF_YEAR, offset)
+            val dayCode = DAY_CODES[candidate.get(Calendar.DAY_OF_WEEK) - 1]
+            val dayMatches = repeatDays.isBlank() || repeatDays.contains(dayCode)
+            if (dayMatches && candidate.after(now)) return candidate
+        }
+        return base.apply { add(Calendar.DAY_OF_YEAR, 1) }
     }
 }

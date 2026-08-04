@@ -8,7 +8,7 @@ import androidx.core.content.ContextCompat
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            TimeTriggerScheduler.ensureScheduled(context)
+            TimeTriggerScheduler.rescheduleNextAlarm(context)
             ContextCompat.startForegroundService(
                 context, Intent(context, DeviceStateTriggerService::class.java)
             )

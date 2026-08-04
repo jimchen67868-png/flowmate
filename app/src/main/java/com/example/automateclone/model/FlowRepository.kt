@@ -1,14 +1,11 @@
 package com.example.automateclone.model
 
 import android.content.Context
+import com.example.automateclone.triggers.TimeTriggerScheduler
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.File
 
-/**
- * Simple on-disk persistence for flows. Not a database — flows are small
- * graphs, so plain JSON in app-private storage is enough for an MVP.
- */
 class FlowRepository(private val context: Context) {
     private val gson = Gson()
     private val storeFile: File
@@ -31,11 +28,13 @@ class FlowRepository(private val context: Context) {
         val idx = flows.indexOfFirst { it.id == flow.id }
         if (idx >= 0) flows[idx] = flow else flows.add(flow)
         saveAll(flows)
+        TimeTriggerScheduler.rescheduleNextAlarm(context)
     }
 
     fun delete(flowId: String) {
         val flows = loadAll()
         flows.removeAll { it.id == flowId }
         saveAll(flows)
+        TimeTriggerScheduler.rescheduleNextAlarm(context)
     }
 }
