@@ -22,5 +22,7 @@ enum class BlockType(
     COPY_TO_CLIPBOARD(BlockCategory.ACTION, "Copy to Clipboard", listOf("text")),
 
     WAIT(BlockCategory.LOGIC, "Wait", listOf("durationMs")),
-    IF_CONDITION(BlockCategory.LOGIC, "If", listOf("variable", "operator", "value"))
+    IF_CONDITION(BlockCategory.LOGIC, "If", listOf("variable", "operator", "value")),
+    SET_VARIABLE(BlockCategory.LOGIC, "Set Variable", listOf("name", "value")),
+    LOOP(BlockCategory.LOGIC, "Loop", listOf("count"))
 }
