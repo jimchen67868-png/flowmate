@@ -427,8 +427,13 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     }
 
     editingBlock?.let { block ->
+        val availableVariables = flow.blocks
+            .filter { it.type == com.example.automateclone.model.BlockType.SET_VARIABLE }
+            .mapNotNull { it.config["name"]?.takeIf { name -> name.isNotBlank() } }
+            .distinct()
         BlockConfigDialog(
             block = block,
+            availableVariables = availableVariables,
             onSave = { newConfig ->
                 snapshotForUndo()
                 block.config.clear()
