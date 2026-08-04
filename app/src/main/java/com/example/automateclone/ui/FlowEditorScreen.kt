@@ -32,6 +32,7 @@ import com.example.automateclone.ui.components.BlockNode
 import com.example.automateclone.ui.components.BlockPaletteSheet
 import com.example.automateclone.ui.components.CodeEditorScreen
 import com.example.automateclone.ui.components.ConnectionsCanvas
+import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -57,6 +58,11 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
 
     var clipboardBlocks by remember { mutableStateOf<List<Block>>(emptyList()) }
     var clipboardConnections by remember { mutableStateOf<List<Connection>>(emptyList()) }
+
+    var isRunning by remember { mutableStateOf(false) }
+    var isPaused by remember { mutableStateOf(false) }
+    var runningJob by remember { mutableStateOf<Job?>(null) }
+    var showLog by remember { mutableStateOf(false) }
 
     val undoStack = remember { mutableStateListOf<AutomationFlow>() }
     val redoStack = remember { mutableStateListOf<AutomationFlow>() }
@@ -142,6 +148,20 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                             selectMode = false
                             selectedIds = emptySet()
                         }) { Text("Done") }
+                    } else if (isRunning) {
+                        TextButton(onClick = { showLog = !showLog }) {
+                            Text(if (showLog) "Editor" else "Log")
+                        }
+                        TextButton(onClick = {
+                            isPaused = !isPaused
+                            engine.setPaused(isPaused)
+                        }) { Text(if (isPaused) "Resume" else "Pause") }
+                        TextButton(onClick = {
+                            runningJob?.cancel()
+                            runningJob = null
+                            isRunning = false
+                            isPaused = false
+                        }) { Text("Stop") }
                     } else {
                         if (undoStack.isNotEmpty()) {
                             TextButton(onClick = { undo() }) { Text("Undo") }
@@ -156,29 +176,42 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                         TextButton(onClick = { showCode = !showCode }) {
                             Text(if (showCode) "Visual" else "Code")
                         }
+                        TextButton(onClick = { showLog = !showLog }) {
+                            Text(if (showLog) "Editor" else "Log")
+                        }
                         IconButton(onClick = {
                             val trigger = flow.triggerBlocks().firstOrNull()
                             if (trigger != null) {
-                                engine.runFrom(flow, trigger)
+                                val job = engine.runFrom(flow, trigger)
+                                runningJob = job
+                                isRunning = true
+                                isPaused = false
+                                job.invokeOnCompletion {
+                                    isRunning = false
+                                    isPaused = false
+                                    runningJob = null
+                                }
                             } else {
                                 android.widget.Toast.makeText(
                                     context, "Add a trigger block to start this flow", android.widget.Toast.LENGTH_SHORT
                                 ).show()
                             }
-                        }) { Icon(Icons.Filled.PlayArrow, contentDescription = "Test run") }
+                        }) { Icon(Icons.Filled.PlayArrow, contentDescription = "Run") }
                     }
                 }
             )
         },
         floatingActionButton = {
-            if (!showCode && !selectMode) {
+            if (!showCode && !selectMode && !isRunning && !showLog) {
                 FloatingActionButton(onClick = { showPalette = true }) {
                     Icon(Icons.Filled.Add, contentDescription = "Add block")
                 }
             }
         }
     ) { padding ->
-        if (showCode) {
+        if (showLog) {
+            LogScreen(modifier = Modifier.padding(padding))
+        } else if (showCode) {
             CodeEditorScreen(
                 text = codeText,
                 onTextChange = { codeText = it },
