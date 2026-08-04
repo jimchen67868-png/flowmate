@@ -18,7 +18,6 @@ enum class BlockType(
     VIBRATE(BlockCategory.ACTION, "Vibrate", listOf("durationMs")),
     LAUNCH_APP(BlockCategory.ACTION, "Launch App", listOf("packageName")),
     SET_VOLUME(BlockCategory.ACTION, "Set Volume", listOf("streamType", "level")),
-    SIMULATED_TAP(BlockCategory.ACTION, "Simulated Tap", listOf("x", "y")),
     SET_WALLPAPER(BlockCategory.ACTION, "Set Wallpaper Color", listOf("colorHex")),
     COPY_TO_CLIPBOARD(BlockCategory.ACTION, "Copy to Clipboard", listOf("text")),
 

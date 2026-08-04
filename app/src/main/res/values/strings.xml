@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Flowmate</string>
-    <string name="accessibility_service_description">Lets Flowmate\'s Simulated Tap action dispatch a tap gesture at a screen location you configure. Flowmate does not read screen content.</string>
 </resources>

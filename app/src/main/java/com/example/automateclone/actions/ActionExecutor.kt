@@ -43,11 +43,6 @@ object ActionExecutor {
                 context,
                 level = block.config["level"]?.toIntOrNull() ?: 5
             )
-            BlockType.SIMULATED_TAP -> simulatedTap(
-                context,
-                x = block.config["x"]?.toFloatOrNull() ?: 0f,
-                y = block.config["y"]?.toFloatOrNull() ?: 0f
-            )
             BlockType.SET_WALLPAPER -> setWallpaperColor(context, block.config["colorHex"].orEmpty())
             BlockType.COPY_TO_CLIPBOARD -> copyToClipboard(context, block.config["text"].orEmpty())
             else -> { /* not an action block */ }
@@ -95,19 +90,6 @@ object ActionExecutor {
     private fun setVolume(context: Context, level: Int) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0)
-    }
-
-    private fun simulatedTap(context: Context, x: Float, y: Float) {
-        val service = TapAccessibilityService.instance
-        if (service == null) {
-            Toast.makeText(
-                context,
-                "Enable Flowmate's Accessibility Service (Settings > Accessibility) to use Simulated Tap",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-        service.performTap(x, y)
     }
 
     private fun setWallpaperColor(context: Context, colorHex: String) {
