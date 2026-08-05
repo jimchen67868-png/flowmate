@@ -3,6 +3,7 @@ package com.example.automateclone.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,21 +33,23 @@ fun LogScreen(modifier: Modifier = Modifier) {
                 )
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(FlowLog.entries) { entry ->
-                    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Text(
-                            text = entry.message,
-                            fontSize = 13.sp,
-                            color = if (entry.level == LogLevel.ERROR) MaterialTheme.colorScheme.error else Color.Unspecified
-                        )
-                        Text(
-                            text = "${entry.flowName} • ${formatter.format(Date(entry.timestamp))}",
-                            fontSize = 11.sp,
-                            color = Color.Gray
-                        )
+            SelectionContainer {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(FlowLog.entries) { entry ->
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                text = entry.message,
+                                fontSize = 13.sp,
+                                color = if (entry.level == LogLevel.ERROR) MaterialTheme.colorScheme.error else Color.Unspecified
+                            )
+                            Text(
+                                text = "${entry.flowName} • ${formatter.format(Date(entry.timestamp))}",
+                                fontSize = 11.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        HorizontalDivider()
                     }
-                    HorizontalDivider()
                 }
             }
         }

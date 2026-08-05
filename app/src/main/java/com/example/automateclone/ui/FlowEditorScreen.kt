@@ -139,7 +139,18 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                 title = { Text(if (selectMode) "${selectedIds.size} selected" else flow.name) },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
                 actions = {
-                    if (selectMode) {
+                    if (showLog) {
+                        TextButton(onClick = { com.example.automateclone.engine.FlowLog.clear() }) { Text("Clear") }
+                        TextButton(onClick = {
+                            val allText = com.example.automateclone.engine.FlowLog.entries.joinToString("\n") {
+                                "[${it.flowName}] ${it.message}"
+                            }
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Flowmate Log", allText))
+                            android.widget.Toast.makeText(context, "Log copied", android.widget.Toast.LENGTH_SHORT).show()
+                        }) { Text("Copy") }
+                        TextButton(onClick = { showLog = false }) { Text("Editor") }
+                    } else if (selectMode) {
                         if (selectedIds.isNotEmpty()) {
                             TextButton(onClick = { copySelectedToClipboard() }) { Text("Copy") }
                             TextButton(onClick = { pendingBulkDelete = true }) { Text("Delete") }
@@ -149,9 +160,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                             selectedIds = emptySet()
                         }) { Text("Done") }
                     } else if (isRunning) {
-                        TextButton(onClick = { showLog = !showLog }) {
-                            Text(if (showLog) "Editor" else "Log")
-                        }
+                        TextButton(onClick = { showLog = true }) { Text("Log") }
                         TextButton(onClick = {
                             isPaused = !isPaused
                             engine.setPaused(isPaused)
@@ -176,9 +185,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                         TextButton(onClick = { showCode = !showCode }) {
                             Text(if (showCode) "Visual" else "Code")
                         }
-                        TextButton(onClick = { showLog = !showLog }) {
-                            Text(if (showLog) "Editor" else "Log")
-                        }
+                        TextButton(onClick = { showLog = true }) { Text("Log") }
                         IconButton(onClick = {
                             val trigger = flow.triggerBlocks().find { it.type == com.example.automateclone.model.BlockType.MANUAL_START }
                                 ?: flow.triggerBlocks().firstOrNull()
