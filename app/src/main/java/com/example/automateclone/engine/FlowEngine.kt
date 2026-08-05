@@ -1,19 +1,27 @@
 package com.example.automateclone.engine
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.automateclone.actions.ActionExecutor
 import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.model.Block
 import com.example.automateclone.model.BlockCategory
 import com.example.automateclone.model.BlockType
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class FlowEngine(private val context: Context) {
@@ -110,6 +118,20 @@ class FlowEngine(private val context: Context) {
                         }
                         return
                     }
+                    BlockType.SHELL_COMMAND -> {
+                        val command = substituteVariables(block.config["command"].orEmpty(), variables)
+                        val outputVar = block.config["outputVariable"].orEmpty()
+                        val result = runShellCommand(command)
+                        FlowLog.add(flow.name, "Shell: $command -> ${result.take(120)}")
+                        if (outputVar.isNotBlank()) variables[outputVar] = result
+                    }
+                    BlockType.OCR_IMAGE -> {
+                        val path = substituteVariables(block.config["imagePath"].orEmpty(), variables)
+                        val outputVar = block.config["outputVariable"].orEmpty()
+                        val result = runOcr(path)
+                        FlowLog.add(flow.name, "OCR($path) -> ${result.take(80)}")
+                        if (outputVar.isNotBlank()) variables[outputVar] = result
+                    }
                     else -> {}
                 }
             }
@@ -118,6 +140,38 @@ class FlowEngine(private val context: Context) {
 
         for (next in flow.outgoingFrom(block.id)) {
             walk(flow, next, visited, variables)
+        }
+    }
+
+    private suspend fun runShellCommand(command: String): String = withContext(Dispatchers.IO) {
+        if (command.isBlank()) return@withContext "Error: no command given"
+        try {
+            val process = ProcessBuilder("sh", "-c", command).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().readText()
+            val finished = process.waitFor(10, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroy()
+                "Error: command timed out after 10s"
+            } else {
+                output.trim()
+            }
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+
+    private suspend fun runOcr(path: String): String = withContext(Dispatchers.IO) {
+        if (path.isBlank()) return@withContext "Error: no image path given"
+        try {
+            val uri = when {
+                path.startsWith("content://") || path.startsWith("file://") -> Uri.parse(path)
+                else -> Uri.fromFile(File(path))
+            }
+            val image = InputImage.fromFilePath(context, uri)
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            recognizer.process(image).await().text
+        } catch (e: Exception) {
+            "Error: ${e.message}"
         }
     }
 

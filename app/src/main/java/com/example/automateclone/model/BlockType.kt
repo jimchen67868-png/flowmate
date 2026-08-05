@@ -24,5 +24,7 @@ enum class BlockType(
     WAIT(BlockCategory.LOGIC, "Wait", listOf("durationMs")),
     IF_CONDITION(BlockCategory.LOGIC, "If", listOf("variable", "operator", "value")),
     SET_VARIABLE(BlockCategory.LOGIC, "Set Variable", listOf("name", "value")),
-    LOOP(BlockCategory.LOGIC, "Loop", listOf("count"))
+    LOOP(BlockCategory.LOGIC, "Loop", listOf("count")),
+    SHELL_COMMAND(BlockCategory.LOGIC, "Shell Command", listOf("command", "outputVariable")),
+    OCR_IMAGE(BlockCategory.LOGIC, "OCR Image", listOf("imagePath", "outputVariable"))
 }
