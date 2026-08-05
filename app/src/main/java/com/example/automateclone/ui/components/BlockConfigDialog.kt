@@ -52,6 +52,13 @@ private fun insertVariableAtCursor(value: TextFieldValue, varName: String): Text
     return TextFieldValue(newText, TextRange(cursor + insertion.length))
 }
 
+private fun insertVariableTemplateAtCursor(value: TextFieldValue): TextFieldValue {
+    val cursor = value.selection.start
+    val insertion = "\${}"
+    val newText = value.text.substring(0, cursor) + insertion + value.text.substring(cursor)
+    return TextFieldValue(newText, TextRange(cursor + 2))
+}
+
 private fun completeVariable(value: TextFieldValue, fullName: String): TextFieldValue {
     val cursor = value.selection.start
     val before = value.text.substring(0, cursor)
@@ -214,22 +221,26 @@ fun BlockConfigDialog(
                                         label = { Text(key) },
                                         modifier = Modifier.weight(1f)
                                     )
-                                    if (availableVariables.isNotEmpty()) {
-                                        Box {
-                                            TextButton(onClick = { fxMenuKey = key }) { Text("fx") }
-                                            DropdownMenu(
-                                                expanded = fxMenuKey == key,
-                                                onDismissRequest = { fxMenuKey = null }
-                                            ) {
-                                                availableVariables.forEach { name ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(name) },
-                                                        onClick = {
-                                                            fields[key] = insertVariableAtCursor(value, name)
-                                                            fxMenuKey = null
-                                                        }
-                                                    )
-                                                }
+                                    Box {
+                                        TextButton(onClick = {
+                                            if (availableVariables.isEmpty()) {
+                                                fields[key] = insertVariableTemplateAtCursor(value)
+                                            } else {
+                                                fxMenuKey = key
+                                            }
+                                        }) { Text("fx") }
+                                        DropdownMenu(
+                                            expanded = fxMenuKey == key,
+                                            onDismissRequest = { fxMenuKey = null }
+                                        ) {
+                                            availableVariables.forEach { name ->
+                                                DropdownMenuItem(
+                                                    text = { Text(name) },
+                                                    onClick = {
+                                                        fields[key] = insertVariableAtCursor(value, name)
+                                                        fxMenuKey = null
+                                                    }
+                                                )
                                             }
                                         }
                                     }
