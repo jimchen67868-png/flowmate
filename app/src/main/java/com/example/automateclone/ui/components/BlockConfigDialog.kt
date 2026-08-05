@@ -63,6 +63,28 @@ private fun completeVariable(value: TextFieldValue, fullName: String): TextField
     return TextFieldValue(newText, TextRange(prefix.length + fullName.length + 1))
 }
 
+private val ENUM_FIELD_OPTIONS: Map<Pair<BlockType, String>, List<Pair<String, String>>> = mapOf(
+    (BlockType.IF_CONDITION to "operator") to listOf(
+        "equals" to "Equals (=)",
+        "notEquals" to "Not equals (≠)",
+        "contains" to "Contains",
+        "greaterThan" to "Greater than (>)",
+        "lessThan" to "Less than (<)"
+    ),
+    (BlockType.BATTERY_LEVEL to "direction") to listOf(
+        "above" to "At or above threshold",
+        "below" to "At or below threshold"
+    ),
+    (BlockType.DEVICE_CHARGING to "state") to listOf(
+        "charging" to "Started charging",
+        "not_charging" to "Stopped charging"
+    ),
+    (BlockType.SCREEN_STATE to "state") to listOf(
+        "on" to "Screen turned on",
+        "off" to "Screen turned off"
+    )
+)
+
 @Composable
 fun BlockConfigDialog(
     block: Block,
@@ -79,6 +101,7 @@ fun BlockConfigDialog(
     var showAppPicker by remember { mutableStateOf(false) }
     var colorPickerKey by remember { mutableStateOf<String?>(null) }
     var fxMenuKey by remember { mutableStateOf<String?>(null) }
+    var enumMenuKey by remember { mutableStateOf<String?>(null) }
 
     if (showAppPicker) {
         AppPickerDialog(
@@ -108,6 +131,7 @@ fun BlockConfigDialog(
         text = {
             Column {
                 block.type.configKeys.forEach { key ->
+                    val enumOptions = ENUM_FIELD_OPTIONS[block.type to key]
                     when {
                         block.type == BlockType.LAUNCH_APP && key == "packageName" -> {
                             val currentPackage = fields[key]?.text.orEmpty()
@@ -146,6 +170,32 @@ fun BlockConfigDialog(
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(if (current.isBlank()) "Choose a color (optional)" else current)
+                                }
+                            }
+                        }
+                        enumOptions != null -> {
+                            val currentValue = fields[key]?.text.orEmpty()
+                            val currentLabel = enumOptions.find { it.first == currentValue }?.second
+                            Box(Modifier.padding(vertical = 4.dp)) {
+                                OutlinedButton(
+                                    onClick = { enumMenuKey = key },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(currentLabel ?: "Choose $key")
+                                }
+                                DropdownMenu(
+                                    expanded = enumMenuKey == key,
+                                    onDismissRequest = { enumMenuKey = null }
+                                ) {
+                                    enumOptions.forEach { (optionValue, optionLabel) ->
+                                        DropdownMenuItem(
+                                            text = { Text(optionLabel) },
+                                            onClick = {
+                                                fields[key] = TextFieldValue(optionValue)
+                                                enumMenuKey = null
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
