@@ -35,13 +35,25 @@ import androidx.compose.ui.unit.sp
 import com.example.automateclone.model.Block
 import com.example.automateclone.model.BlockType
 
+private val BUILTIN_FUNCTIONS = listOf(
+    "round" to "round(number, decimals)",
+    "split" to "split(text, delimiter, index)",
+    "concat" to "concat(a, b, ...)",
+    "upper" to "upper(text)",
+    "lower" to "lower(text)",
+    "length" to "length(text)",
+    "currentTime" to "currentTime()",
+    "currentDate" to "currentDate()",
+    "currentOpenApp" to "currentOpenApp()"
+)
+
 private fun currentPartialVariable(value: TextFieldValue): String? {
     val cursor = value.selection.start
     val before = value.text.substring(0, cursor)
     val lastOpen = before.lastIndexOf("\${")
     if (lastOpen == -1) return null
     val segment = before.substring(lastOpen + 2)
-    if (segment.contains("}") || segment.contains("$") || segment.contains(" ")) return null
+    if (segment.contains("}") || segment.contains("$") || segment.contains(" ") || segment.contains("(")) return null
     return segment
 }
 
@@ -50,6 +62,14 @@ private fun insertVariableAtCursor(value: TextFieldValue, varName: String): Text
     val insertion = "\${$varName}"
     val newText = value.text.substring(0, cursor) + insertion + value.text.substring(cursor)
     return TextFieldValue(newText, TextRange(cursor + insertion.length))
+}
+
+private fun insertFunctionAtCursor(value: TextFieldValue, funcName: String): TextFieldValue {
+    val cursor = value.selection.start
+    val insertion = "\${$funcName()}"
+    val newText = value.text.substring(0, cursor) + insertion + value.text.substring(cursor)
+    val newCursor = cursor + "\${$funcName(".length
+    return TextFieldValue(newText, TextRange(newCursor))
 }
 
 private fun insertVariableTemplateAtCursor(value: TextFieldValue): TextFieldValue {
@@ -68,6 +88,17 @@ private fun completeVariable(value: TextFieldValue, fullName: String): TextField
     val suffix = value.text.substring(cursor)
     val newText = prefix + fullName + "}" + suffix
     return TextFieldValue(newText, TextRange(prefix.length + fullName.length + 1))
+}
+
+private fun completeFunction(value: TextFieldValue, funcName: String): TextFieldValue {
+    val cursor = value.selection.start
+    val before = value.text.substring(0, cursor)
+    val lastOpen = before.lastIndexOf("\${")
+    if (lastOpen == -1) return value
+    val prefix = value.text.substring(0, lastOpen + 2)
+    val suffix = value.text.substring(cursor)
+    val newText = prefix + funcName + "()}" + suffix
+    return TextFieldValue(newText, TextRange(prefix.length + funcName.length + 1))
 }
 
 private val ENUM_FIELD_OPTIONS: Map<Pair<BlockType, String>, List<Pair<String, String>>> = mapOf(
@@ -209,8 +240,11 @@ fun BlockConfigDialog(
                         else -> {
                             val value = fields[key] ?: TextFieldValue("")
                             val partial = currentPartialVariable(value)
-                            val suggestions = if (partial != null) {
+                            val variableSuggestions = if (partial != null) {
                                 availableVariables.filter { it.startsWith(partial, ignoreCase = true) }
+                            } else emptyList()
+                            val functionSuggestions = if (partial != null) {
+                                BUILTIN_FUNCTIONS.filter { it.first.startsWith(partial, ignoreCase = true) }
                             } else emptyList()
 
                             Column(Modifier.padding(vertical = 4.dp)) {
@@ -233,11 +267,24 @@ fun BlockConfigDialog(
                                             expanded = fxMenuKey == key,
                                             onDismissRequest = { fxMenuKey = null }
                                         ) {
-                                            availableVariables.forEach { name ->
+                                            if (availableVariables.isNotEmpty()) {
+                                                DropdownMenuItem(text = { Text("Variables", fontSize = 11.sp) }, onClick = {}, enabled = false)
+                                                availableVariables.forEach { name ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(name) },
+                                                        onClick = {
+                                                            fields[key] = insertVariableAtCursor(value, name)
+                                                            fxMenuKey = null
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                            DropdownMenuItem(text = { Text("Functions", fontSize = 11.sp) }, onClick = {}, enabled = false)
+                                            BUILTIN_FUNCTIONS.forEach { (name, signature) ->
                                                 DropdownMenuItem(
-                                                    text = { Text(name) },
+                                                    text = { Text(signature) },
                                                     onClick = {
-                                                        fields[key] = insertVariableAtCursor(value, name)
+                                                        fields[key] = insertFunctionAtCursor(value, name)
                                                         fxMenuKey = null
                                                     }
                                                 )
@@ -245,15 +292,19 @@ fun BlockConfigDialog(
                                         }
                                     }
                                 }
-                                if (suggestions.isNotEmpty()) {
+                                if (variableSuggestions.isNotEmpty() || functionSuggestions.isNotEmpty()) {
                                     Row(Modifier.padding(top = 2.dp)) {
-                                        suggestions.forEach { name ->
+                                        variableSuggestions.forEach { name ->
                                             TextButton(
                                                 onClick = { fields[key] = completeVariable(value, name) },
                                                 modifier = Modifier.padding(end = 4.dp)
-                                            ) {
-                                                Text(name, fontSize = 12.sp)
-                                            }
+                                            ) { Text(name, fontSize = 12.sp) }
+                                        }
+                                        functionSuggestions.forEach { (name, _) ->
+                                            TextButton(
+                                                onClick = { fields[key] = completeFunction(value, name) },
+                                                modifier = Modifier.padding(end = 4.dp)
+                                            ) { Text("$name()", fontSize = 12.sp) }
                                         }
                                     }
                                 }

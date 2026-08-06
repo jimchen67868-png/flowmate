@@ -1,5 +1,6 @@
 package com.example.automateclone.engine
 
+import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -21,8 +22,12 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.roundToLong
 
 class FlowEngine(private val context: Context) {
 
@@ -192,7 +197,62 @@ class FlowEngine(private val context: Context) {
     }
 
     private fun substituteVariables(text: String, variables: Map<String, String>): String {
-        val regex = Regex("""\$\{(\w+)\}""")
-        return regex.replace(text) { match -> variables[match.groupValues[1]] ?: match.value }
+        val funcRegex = Regex("""\$\{(\w+)\(([^)]*)\)\}""")
+        val afterFunctions = funcRegex.replace(text) { match ->
+            val funcName = match.groupValues[1]
+            val rawArgs = match.groupValues[2]
+            val args = if (rawArgs.isBlank()) {
+                emptyList()
+            } else {
+                rawArgs.split(",").map { arg ->
+                    val trimmed = arg.trim().removeSurrounding("\"")
+                    variables[trimmed] ?: trimmed
+                }
+            }
+            callFunction(funcName, args)
+        }
+
+        val varRegex = Regex("""\$\{(\w+)\}""")
+        return varRegex.replace(afterFunctions) { match -> variables[match.groupValues[1]] ?: match.value }
+    }
+
+    private fun callFunction(name: String, args: List<String>): String = try {
+        when (name) {
+            "round" -> {
+                val num = args.getOrNull(0)?.toDoubleOrNull()
+                    ?: return "Error: round(number, decimals?) needs a numeric first argument"
+                val decimals = args.getOrNull(1)?.toIntOrNull() ?: 0
+                val factor = Math.pow(10.0, decimals.toDouble())
+                val rounded = (num * factor).roundToLong() / factor
+                if (decimals <= 0) rounded.toLong().toString() else rounded.toString()
+            }
+            "split" -> {
+                val text = args.getOrNull(0) ?: ""
+                val delimiter = args.getOrNull(1) ?: ","
+                val index = args.getOrNull(2)?.toIntOrNull() ?: 0
+                text.split(delimiter).getOrNull(index) ?: ""
+            }
+            "concat" -> args.joinToString("")
+            "upper" -> (args.getOrNull(0) ?: "").uppercase()
+            "lower" -> (args.getOrNull(0) ?: "").lowercase()
+            "length" -> (args.getOrNull(0) ?: "").length.toString()
+            "currentTime" -> SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+            "currentDate" -> SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            "currentOpenApp" -> currentForegroundApp()
+            else -> "Error: unknown function $name"
+        }
+    } catch (e: Exception) {
+        "Error: ${e.message}"
+    }
+
+    private fun currentForegroundApp(): String = try {
+        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val end = System.currentTimeMillis()
+        val begin = end - TimeUnit.MINUTES.toMillis(1)
+        val stats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, begin, end)
+        stats?.maxByOrNull { it.lastTimeUsed }?.packageName
+            ?: "Error: enable Usage Access for Flowmate in Settings"
+    } catch (e: Exception) {
+        "Error: ${e.message}"
     }
 }
