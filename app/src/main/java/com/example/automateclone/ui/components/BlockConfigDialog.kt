@@ -1,5 +1,9 @@
 package com.example.automateclone.ui.components
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -140,6 +144,23 @@ fun BlockConfigDialog(
     var colorPickerKey by remember { mutableStateOf<String?>(null) }
     var fxMenuKey by remember { mutableStateOf<String?>(null) }
     var enumMenuKey by remember { mutableStateOf<String?>(null) }
+    var pendingImagePickKey by remember { mutableStateOf<String?>(null) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        val key = pendingImagePickKey
+        if (uri != null && key != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: Exception) {
+                // Some providers don't support a persistable grant; the path
+                // still works for this session even if this fails.
+            }
+            fields[key] = TextFieldValue(uri.toString())
+        }
+        pendingImagePickKey = null
+    }
 
     if (showAppPicker) {
         AppPickerDialog(
@@ -209,6 +230,29 @@ fun BlockConfigDialog(
                                     Spacer(Modifier.width(8.dp))
                                     Text(if (current.isBlank()) "Choose a color (optional)" else current)
                                 }
+                            }
+                        }
+                        key == "imagePath" -> {
+                            val current = fields[key]?.text.orEmpty()
+                            val displayName = remember(current) {
+                                if (current.isBlank()) {
+                                    null
+                                } else {
+                                    try {
+                                        Uri.parse(current).lastPathSegment ?: current
+                                    } catch (e: Exception) {
+                                        current
+                                    }
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    pendingImagePickKey = key
+                                    imagePickerLauncher.launch(arrayOf("image/*"))
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                Text(displayName ?: "Choose an image")
                             }
                         }
                         enumOptions != null -> {
