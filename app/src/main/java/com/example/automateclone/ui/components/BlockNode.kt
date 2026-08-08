@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.automateclone.model.Block
 import com.example.automateclone.model.BlockCategory
+import com.example.automateclone.model.outputPorts
 
 val BLOCK_WIDTH = 180.dp
 val BLOCK_HEIGHT = 76.dp
@@ -34,17 +35,27 @@ private fun categoryColor(category: BlockCategory): Color = when (category) {
     BlockCategory.LOGIC -> Color(0xFFEF6C00)
 }
 
+fun outputPortCenterOffset(index: Int, count: Int, blockHeight: Float): Float {
+    val center = blockHeight / 2
+    if (count <= 1) return center
+    val spacing = blockHeight * 0.35f
+    return center + spacing * (index - (count - 1) / 2f)
+}
+
 @Composable
 fun BlockNode(
     block: Block,
     isConnecting: Boolean,
     isSelected: Boolean = false,
-    onTapOutputPort: () -> Unit,
+    onTapOutputPort: (String) -> Unit,
     onTapInputPort: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     val color = categoryColor(block.type.category)
+    val outputPorts = block.type.outputPorts()
+    val heightValue = BLOCK_HEIGHT.value
+
     Box(
         modifier = Modifier
             .width(BLOCK_WIDTH)
@@ -105,16 +116,32 @@ fun BlockNode(
             )
         }
 
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .offset(x = 8.dp)
-                .size(PORT_SIZE)
-                .clip(CircleShape)
-                .background(color)
-                .pointerInput(block.id) {
-                    detectTapGestures { onTapOutputPort() }
-                }
-        )
+        outputPorts.forEachIndexed { index, portName ->
+            val centerOffsetFromTop = outputPortCenterOffset(index, outputPorts.size, heightValue)
+            val offsetFromCenter = (centerOffsetFromTop - heightValue / 2).dp
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 8.dp, y = offsetFromCenter)
+                    .size(PORT_SIZE)
+                    .clip(CircleShape)
+                    .background(color)
+                    .pointerInput(block.id, portName) {
+                        detectTapGestures { onTapOutputPort(portName) }
+                    }
+            )
+            if (outputPorts.size > 1) {
+                Text(
+                    text = portName.first().uppercaseChar().toString(),
+                    fontSize = 8.sp,
+                    color = color,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .offset(x = 24.dp, y = offsetFromCenter - 6.dp)
+                )
+            }
+        }
     }
 }

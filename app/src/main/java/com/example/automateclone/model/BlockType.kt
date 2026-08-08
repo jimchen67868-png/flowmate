@@ -28,3 +28,9 @@ enum class BlockType(
     SHELL_COMMAND(BlockCategory.LOGIC, "Shell Command", listOf("command", "outputVariable")),
     OCR_IMAGE(BlockCategory.LOGIC, "OCR Image", listOf("imagePath", "outputVariable"))
 }
+
+fun BlockType.outputPorts(): List<String> = when (this) {
+    BlockType.IF_CONDITION -> listOf("true", "false")
+    BlockType.LOOP -> listOf("body", "after")
+    else -> listOf("output")
+}

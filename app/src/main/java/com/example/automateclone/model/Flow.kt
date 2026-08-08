@@ -13,7 +13,8 @@ data class Block(
 data class Connection(
     val id: String = UUID.randomUUID().toString(),
     val fromBlockId: String,
-    val toBlockId: String
+    val toBlockId: String,
+    val fromPort: String? = null
 )
 
 data class AutomationFlow(
@@ -23,16 +24,12 @@ data class AutomationFlow(
     val blocks: MutableList<Block> = mutableListOf(),
     val connections: MutableList<Connection> = mutableListOf()
 ) {
-    fun outgoingFrom(blockId: String): List<Block> =
-        connections.filter { it.fromBlockId == blockId }
+    fun outgoingFrom(blockId: String, port: String = "output"): List<Block> =
+        connections.filter { it.fromBlockId == blockId && (it.fromPort ?: "output") == port }
             .mapNotNull { conn -> blocks.find { it.id == conn.toBlockId } }
 
     fun triggerBlocks(): List<Block> = blocks.filter { it.type.category == BlockCategory.TRIGGER }
 
-    /**
-     * A genuinely independent copy — every Block and its config map are
-     * cloned too, not just the outer lists. Needed for undo/redo snapshots.
-     */
     fun deepCopy(): AutomationFlow = copy(
         blocks = blocks.map { it.copy(config = it.config.toMutableMap()) }.toMutableList(),
         connections = connections.map { it.copy() }.toMutableList()

@@ -105,21 +105,29 @@ class FlowEngine(private val context: Context) {
                     }
                     BlockType.IF_CONDITION -> {
                         val passed = evaluateCondition(block, variables)
+                        val branch = if (passed) "true" else "false"
                         FlowLog.add(
                             flow.name,
                             "If ${block.config["variable"]} ${block.config["operator"]} ${block.config["value"]}: " +
-                                if (passed) "true" else "false (stopping this branch)"
+                                "$branch — following the '$branch' branch"
                         )
-                        if (!passed) return
+                        for (next in flow.outgoingFrom(block.id, branch)) {
+                            walk(flow, next, visited, variables)
+                        }
+                        return
                     }
                     BlockType.LOOP -> {
                         val count = (block.config["count"]?.toIntOrNull() ?: 1).coerceAtLeast(0)
                         FlowLog.add(flow.name, "Loop x$count")
                         repeat(count) { i ->
                             FlowLog.add(flow.name, "Loop iteration ${i + 1}/$count")
-                            for (next in flow.outgoingFrom(block.id)) {
+                            for (next in flow.outgoingFrom(block.id, "body")) {
                                 walk(flow, next, mutableSetOf(), variables)
                             }
+                        }
+                        FlowLog.add(flow.name, "Loop finished, continuing after it")
+                        for (next in flow.outgoingFrom(block.id, "after")) {
+                            walk(flow, next, visited, variables)
                         }
                         return
                     }
@@ -143,7 +151,7 @@ class FlowEngine(private val context: Context) {
             BlockCategory.TRIGGER -> { }
         }
 
-        for (next in flow.outgoingFrom(block.id)) {
+        for (next in flow.outgoingFrom(block.id, "output")) {
             walk(flow, next, visited, variables)
         }
     }

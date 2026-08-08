@@ -1,25 +1,5 @@
 package com.example.automateclone.model
 
-/**
- * A small text DSL for describing a flow as code — the same graph the
- * visual editor manipulates, just typed instead of dragged.
- *
- * Example:
- * ```
- * flow "Low battery alert" enabled=true {
- *     trigger BATTERY_LEVEL(threshold="20", direction="below") as b1
- *     action SHOW_NOTIFICATION(title="Low battery", text="Charge now") as n1
- *     action VIBRATE(durationMs="500") as v1
- *
- *     b1 -> n1 -> v1
- * }
- * ```
- *
- * Block ids in the DSL (the "as X" alias) are local to the text and are not
- * the same as the underlying Block.id — parsing always creates fresh blocks
- * and auto-arranges them left-to-right by graph depth, since the DSL doesn't
- * encode canvas coordinates.
- */
 object FlowDsl {
 
     class ParseException(message: String) : Exception(message)
@@ -54,7 +34,11 @@ object FlowDsl {
                 flow.connections.forEach { c ->
                     val from = aliasOf[c.fromBlockId]
                     val to = aliasOf[c.toBlockId]
-                    if (from != null && to != null) appendLine("    $from -> $to")
+                    if (from != null && to != null) {
+                        val port = c.fromPort ?: "output"
+                        val portSuffix = if (port == "output") "" else ".$port"
+                        appendLine("    $from$portSuffix -> $to")
+                    }
                 }
             }
             appendLine("}")
@@ -112,15 +96,29 @@ object FlowDsl {
             }
 
             if (line.contains("->")) {
-                val aliases = line.split("->").map { it.trim() }
-                for (i in 0 until aliases.size - 1) {
-                    val fromAlias = aliases[i]
-                    val toAlias = aliases[i + 1]
+                val tokens = line.split("->").map { it.trim() }
+                for (i in 0 until tokens.size - 1) {
+                    val fromToken = tokens[i]
+                    val toToken = tokens[i + 1]
+
+                    val (fromAlias, fromPort) = if (fromToken.contains(".")) {
+                        val parts = fromToken.split(".", limit = 2)
+                        parts[0] to parts[1]
+                    } else {
+                        fromToken to "output"
+                    }
+                    val toAlias = toToken.substringBefore(".")
+
                     val fromId = aliasToId[fromAlias]
                         ?: throw ParseException("Line $lineNo: unknown block alias '$fromAlias'")
                     val toId = aliasToId[toAlias]
                         ?: throw ParseException("Line $lineNo: unknown block alias '$toAlias'")
-                    connections += Connection(fromBlockId = fromId, toBlockId = toId)
+
+                    connections += Connection(
+                        fromBlockId = fromId,
+                        toBlockId = toId,
+                        fromPort = if (fromPort == "output") null else fromPort
+                    )
                 }
                 return@forEachIndexed
             }
@@ -139,7 +137,6 @@ object FlowDsl {
         )
     }
 
-    /** Arranges blocks left-to-right by graph depth since the DSL has no x/y. */
     private fun autoLayout(blocks: List<Block>, connections: List<Connection>) {
         if (blocks.isEmpty()) return
         val layer = mutableMapOf<String, Int>()

@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.example.automateclone.model.AutomationFlow
+import com.example.automateclone.model.outputPorts
 
 @Composable
 fun ConnectionsCanvas(flow: AutomationFlow, density: Density, selectedConnectionId: String? = null) {
@@ -21,7 +22,12 @@ fun ConnectionsCanvas(flow: AutomationFlow, density: Density, selectedConnection
             val from = flow.blocks.find { it.id == conn.fromBlockId } ?: return@forEach
             val to = flow.blocks.find { it.id == conn.toBlockId } ?: return@forEach
 
-            val start = Offset(from.x + blockWidthPx, from.y + blockHeightPx / 2)
+            val fromPorts = from.type.outputPorts()
+            val fromPortName = conn.fromPort ?: "output"
+            val fromIndex = fromPorts.indexOf(fromPortName).let { if (it == -1) 0 else it }
+            val startY = from.y + outputPortCenterOffset(fromIndex, fromPorts.size, blockHeightPx)
+
+            val start = Offset(from.x + blockWidthPx, startY)
             val end = Offset(to.x, to.y + blockHeightPx / 2)
             val midX = (start.x + end.x) / 2
 

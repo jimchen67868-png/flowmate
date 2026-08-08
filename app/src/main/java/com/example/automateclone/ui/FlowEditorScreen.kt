@@ -25,6 +25,7 @@ import com.example.automateclone.model.BlockCategory
 import com.example.automateclone.model.Connection
 import com.example.automateclone.model.FlowDsl
 import com.example.automateclone.model.FlowRepository
+import com.example.automateclone.model.outputPorts
 import com.example.automateclone.ui.components.BLOCK_HEIGHT
 import com.example.automateclone.ui.components.BLOCK_WIDTH
 import com.example.automateclone.ui.components.BlockConfigDialog
@@ -32,6 +33,7 @@ import com.example.automateclone.ui.components.BlockNode
 import com.example.automateclone.ui.components.BlockPaletteSheet
 import com.example.automateclone.ui.components.CodeEditorScreen
 import com.example.automateclone.ui.components.ConnectionsCanvas
+import com.example.automateclone.ui.components.outputPortCenterOffset
 import kotlinx.coroutines.Job
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -48,7 +50,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     var flow by remember { mutableStateOf(initialFlow, policy = referentialEqualityPolicy()) }
     var showPalette by remember { mutableStateOf(false) }
     var editingBlock by remember { mutableStateOf<Block?>(null) }
-    var connectingFromId by remember { mutableStateOf<String?>(null) }
+    var connectingFrom by remember { mutableStateOf<Pair<String, String>?>(null) }
     var pendingDeleteBlock by remember { mutableStateOf<Block?>(null) }
     var pendingBulkDelete by remember { mutableStateOf(false) }
     var selectedConnectionId by remember { mutableStateOf<String?>(null) }
@@ -110,7 +112,9 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
         val newConnections = clipboardConnections.mapNotNull { conn ->
             val fromNew = idMap[conn.fromBlockId]
             val toNew = idMap[conn.toBlockId]
-            if (fromNew != null && toNew != null) Connection(fromBlockId = fromNew, toBlockId = toNew) else null
+            if (fromNew != null && toNew != null) {
+                Connection(fromBlockId = fromNew, toBlockId = toNew, fromPort = conn.fromPort)
+            } else null
         }
         flow.blocks.addAll(newBlocks)
         flow.connections.addAll(newConnections)
@@ -262,8 +266,12 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                             return flow.connections.find { conn ->
                                 val from = flow.blocks.find { it.id == conn.fromBlockId } ?: return@find false
                                 val to = flow.blocks.find { it.id == conn.toBlockId } ?: return@find false
+                                val fromPorts = from.type.outputPorts()
+                                val fromIndex = fromPorts.indexOf(conn.fromPort ?: "output").let { if (it == -1) 0 else it }
+                                val fromOffsetY = outputPortCenterOffset(fromIndex, fromPorts.size, blockHeightPx)
+
                                 val p0x = panOffset.x + from.x + blockWidthPx
-                                val p0y = panOffset.y + from.y + blockHeightPx / 2
+                                val p0y = panOffset.y + from.y + fromOffsetY
                                 val p3x = panOffset.x + to.x
                                 val p3y = panOffset.y + to.y + blockHeightPx / 2
                                 val midX = (p0x + p3x) / 2
@@ -346,15 +354,24 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                                     }
                                 }
                                 else -> {
-                                    val portCy = panOffset.y + hitBlock.y + blockHeightPx / 2
+                                    val outputPortsOfHit = hitBlock.type.outputPorts()
                                     val outputCx = panOffset.x + hitBlock.x + blockWidthPx
                                     val inputCx = panOffset.x + hitBlock.x
-                                    val onOutputPort = distSq(down.position.x, down.position.y, outputCx, portCy) <=
-                                        portRadiusPx * portRadiusPx
-                                    val onInputPort = hitBlock.type.category != BlockCategory.TRIGGER &&
-                                        distSq(down.position.x, down.position.y, inputCx, portCy) <= portRadiusPx * portRadiusPx
 
-                                    if (onOutputPort || onInputPort) {
+                                    var tappedOutputPort: String? = null
+                                    for (i in outputPortsOfHit.indices) {
+                                        val portCy = panOffset.y + hitBlock.y +
+                                            outputPortCenterOffset(i, outputPortsOfHit.size, blockHeightPx)
+                                        if (distSq(down.position.x, down.position.y, outputCx, portCy) <= portRadiusPx * portRadiusPx) {
+                                            tappedOutputPort = outputPortsOfHit[i]
+                                            break
+                                        }
+                                    }
+                                    val inputPortCy = panOffset.y + hitBlock.y + blockHeightPx / 2
+                                    val onInputPort = hitBlock.type.category != BlockCategory.TRIGGER &&
+                                        distSq(down.position.x, down.position.y, inputCx, inputPortCy) <= portRadiusPx * portRadiusPx
+
+                                    if (tappedOutputPort != null || onInputPort) {
                                         // Leave it to the port's own tap detector.
                                     } else {
                                         var snapshotted = false
@@ -388,19 +405,25 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                         ) {
                             BlockNode(
                                 block = block,
-                                isConnecting = connectingFromId == block.id,
+                                isConnecting = connectingFrom?.first == block.id,
                                 isSelected = block.id in selectedIds,
-                                onTapOutputPort = {
-                                    if (!selectMode) connectingFromId = block.id
+                                onTapOutputPort = { port ->
+                                    if (!selectMode) connectingFrom = block.id to port
                                 },
                                 onTapInputPort = {
                                     if (!selectMode) {
-                                        val fromId = connectingFromId
-                                        if (fromId != null && fromId != block.id) {
+                                        val from = connectingFrom
+                                        if (from != null && from.first != block.id) {
                                             snapshotForUndo()
-                                            flow.connections.add(Connection(fromBlockId = fromId, toBlockId = block.id))
+                                            flow.connections.add(
+                                                Connection(
+                                                    fromBlockId = from.first,
+                                                    toBlockId = block.id,
+                                                    fromPort = if (from.second == "output") null else from.second
+                                                )
+                                            )
                                             flow = flow.copy(connections = flow.connections.toMutableList())
-                                            connectingFromId = null
+                                            connectingFrom = null
                                             persist()
                                         }
                                     }
