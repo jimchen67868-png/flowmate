@@ -228,11 +228,14 @@ class FlowEngine(private val context: Context) {
         when (name) {
             "round" -> {
                 val num = args.getOrNull(0)?.toDoubleOrNull()
-                    ?: return "Error: round(number, decimals?) needs a numeric first argument"
-                val decimals = args.getOrNull(1)?.toIntOrNull() ?: 0
-                val factor = Math.pow(10.0, decimals.toDouble())
-                val rounded = (num * factor).roundToLong() / factor
-                if (decimals <= 0) rounded.toLong().toString() else rounded.toString()
+                if (num == null) {
+                    "Error: round(number, decimals?) needs a numeric first argument"
+                } else {
+                    val decimals = args.getOrNull(1)?.toIntOrNull() ?: 0
+                    val factor = Math.pow(10.0, decimals.toDouble())
+                    val rounded = (num * factor).roundToLong() / factor
+                    if (decimals <= 0) rounded.toLong().toString() else rounded.toString()
+                }
             }
             "split" -> {
                 val text = args.getOrNull(0) ?: ""
