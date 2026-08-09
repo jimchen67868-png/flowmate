@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -51,6 +53,39 @@ private val BUILTIN_FUNCTIONS = listOf(
     "currentOpenApp" to "currentOpenApp()"
 )
 
+private val COMMON_SHELL_COMMANDS = listOf(
+    "ls" to "list files",
+    "cat" to "print file contents",
+    "echo" to "print text",
+    "pwd" to "working directory",
+    "whoami" to "current user",
+    "date" to "current date/time",
+    "ps" to "list processes",
+    "df" to "disk free space",
+    "du" to "disk usage",
+    "mkdir" to "make directory",
+    "rm" to "remove file",
+    "cp" to "copy file",
+    "mv" to "move/rename file",
+    "chmod" to "change permissions",
+    "grep" to "search text",
+    "find" to "find files",
+    "sleep" to "pause N seconds",
+    "ping" to "network ping",
+    "id" to "user/group ids",
+    "uname" to "system info",
+    "top" to "process snapshot",
+    "kill" to "send signal to process",
+    "touch" to "create/update file",
+    "head" to "first lines of file",
+    "tail" to "last lines of file",
+    "wc" to "word/line count",
+    "sort" to "sort lines",
+    "uniq" to "filter duplicate lines",
+    "getprop" to "read system property",
+    "settings" to "read/write Android settings"
+)
+
 private fun currentPartialVariable(value: TextFieldValue): String? {
     val cursor = value.selection.start
     val before = value.text.substring(0, cursor)
@@ -59,6 +94,13 @@ private fun currentPartialVariable(value: TextFieldValue): String? {
     val segment = before.substring(lastOpen + 2)
     if (segment.contains("}") || segment.contains("$") || segment.contains(" ") || segment.contains("(")) return null
     return segment
+}
+
+private fun currentShellCommandWord(value: TextFieldValue): String? {
+    val cursor = value.selection.start
+    val before = value.text.substring(0, cursor)
+    if (before.contains(" ") || before.contains("\t")) return null
+    return before
 }
 
 private fun insertVariableAtCursor(value: TextFieldValue, varName: String): TextFieldValue {
@@ -103,6 +145,13 @@ private fun completeFunction(value: TextFieldValue, funcName: String): TextField
     val suffix = value.text.substring(cursor)
     val newText = prefix + funcName + "()}" + suffix
     return TextFieldValue(newText, TextRange(prefix.length + funcName.length + 1))
+}
+
+private fun completeShellCommand(value: TextFieldValue, command: String): TextFieldValue {
+    val cursor = value.selection.start
+    val suffix = value.text.substring(cursor).trimStart()
+    val newText = "$command $suffix"
+    return TextFieldValue(newText, TextRange(command.length + 1))
 }
 
 private val ENUM_FIELD_OPTIONS: Map<Pair<BlockType, String>, List<Pair<String, String>>> = mapOf(
@@ -290,6 +339,11 @@ fun BlockConfigDialog(
                             val functionSuggestions = if (partial != null) {
                                 BUILTIN_FUNCTIONS.filter { it.first.startsWith(partial, ignoreCase = true) }
                             } else emptyList()
+                            val shellCommandSuggestions = if (block.type == BlockType.SHELL_COMMAND && key == "command") {
+                                currentShellCommandWord(value)?.takeIf { it.isNotEmpty() }?.let { word ->
+                                    COMMON_SHELL_COMMANDS.filter { it.first.startsWith(word, ignoreCase = true) }
+                                } ?: emptyList()
+                            } else emptyList()
 
                             Column(Modifier.padding(vertical = 4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -336,8 +390,18 @@ fun BlockConfigDialog(
                                         }
                                     }
                                 }
-                                if (variableSuggestions.isNotEmpty() || functionSuggestions.isNotEmpty()) {
-                                    Row(Modifier.padding(top = 2.dp)) {
+                                if (shellCommandSuggestions.isNotEmpty() || variableSuggestions.isNotEmpty() || functionSuggestions.isNotEmpty()) {
+                                    Row(
+                                        Modifier
+                                            .padding(top = 2.dp)
+                                            .horizontalScroll(rememberScrollState())
+                                    ) {
+                                        shellCommandSuggestions.forEach { (name, desc) ->
+                                            TextButton(
+                                                onClick = { fields[key] = completeShellCommand(value, name) },
+                                                modifier = Modifier.padding(end = 4.dp)
+                                            ) { Text("$name — $desc", fontSize = 12.sp) }
+                                        }
                                         variableSuggestions.forEach { name ->
                                             TextButton(
                                                 onClick = { fields[key] = completeVariable(value, name) },
