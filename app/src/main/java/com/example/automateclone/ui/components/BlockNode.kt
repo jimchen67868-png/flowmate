@@ -26,6 +26,7 @@ import com.example.automateclone.model.outputPorts
 val BLOCK_WIDTH = 180.dp
 val BLOCK_HEIGHT = 76.dp
 val PORT_SIZE = 16.dp
+val LABELED_PORT_SIZE = 26.dp
 
 private val SelectionColor = Color(0xFF1976D2)
 
@@ -42,6 +43,14 @@ fun outputPortCenterOffset(index: Int, count: Int, blockHeight: Float): Float {
     return center + spacing * (index - (count - 1) / 2f)
 }
 
+private fun portLabel(portName: String): String = when (portName) {
+    "true" -> "Yes"
+    "false" -> "No"
+    "body" -> "Do"
+    "after" -> "Ok"
+    else -> portName
+}
+
 @Composable
 fun BlockNode(
     block: Block,
@@ -55,6 +64,7 @@ fun BlockNode(
     val color = categoryColor(block.type.category)
     val outputPorts = block.type.outputPorts()
     val heightValue = BLOCK_HEIGHT.value
+    val hasMultiplePorts = outputPorts.size > 1
 
     Box(
         modifier = Modifier
@@ -119,28 +129,29 @@ fun BlockNode(
         outputPorts.forEachIndexed { index, portName ->
             val centerOffsetFromTop = outputPortCenterOffset(index, outputPorts.size, heightValue)
             val offsetFromCenter = (centerOffsetFromTop - heightValue / 2).dp
+            val dotSize = if (hasMultiplePorts) LABELED_PORT_SIZE else PORT_SIZE
 
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .offset(x = 8.dp, y = offsetFromCenter)
-                    .size(PORT_SIZE)
+                    .offset(x = dotSize / 2, y = offsetFromCenter)
+                    .size(dotSize)
                     .clip(CircleShape)
                     .background(color)
                     .pointerInput(block.id, portName) {
                         detectTapGestures { onTapOutputPort(portName) }
-                    }
-            )
-            if (outputPorts.size > 1) {
-                Text(
-                    text = portName.first().uppercaseChar().toString(),
-                    fontSize = 8.sp,
-                    color = color,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .offset(x = 24.dp, y = offsetFromCenter - 6.dp)
-                )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (hasMultiplePorts) {
+                    Text(
+                        text = portLabel(portName),
+                        fontSize = 7.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
