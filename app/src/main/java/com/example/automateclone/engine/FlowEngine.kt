@@ -96,7 +96,7 @@ class FlowEngine(private val context: Context) {
                         delay(ms)
                     }
                     BlockType.SET_VARIABLE -> {
-                        val name = block.config["name"].orEmpty()
+                        val name = normalizeVariableName(block.config["name"].orEmpty())
                         if (name.isNotBlank()) {
                             val value = substituteVariables(block.config["value"].orEmpty(), variables)
                             variables[name] = value
@@ -133,7 +133,7 @@ class FlowEngine(private val context: Context) {
                     }
                     BlockType.SHELL_COMMAND -> {
                         val command = substituteVariables(block.config["command"].orEmpty(), variables)
-                        val outputVar = block.config["outputVariable"].orEmpty()
+                        val outputVar = normalizeVariableName(block.config["outputVariable"].orEmpty())
                         FlowLog.add(flow.name, "Shell: running $command (10s timeout)")
                         val result = runShellCommand(command)
                         FlowLog.add(flow.name, "Shell: $command -> ${result.take(120)}")
@@ -141,7 +141,7 @@ class FlowEngine(private val context: Context) {
                     }
                     BlockType.OCR_IMAGE -> {
                         val path = substituteVariables(block.config["imagePath"].orEmpty(), variables)
-                        val outputVar = block.config["outputVariable"].orEmpty()
+                        val outputVar = normalizeVariableName(block.config["outputVariable"].orEmpty())
                         val result = runOcr(path)
                         FlowLog.add(flow.name, "OCR($path) -> ${result.take(80)}")
                         if (outputVar.isNotBlank()) variables[outputVar] = result
@@ -208,6 +208,21 @@ class FlowEngine(private val context: Context) {
             "greaterThan" -> if (actualNum != null && expectedNum != null) actualNum > expectedNum else actual > expected
             "lessThan" -> if (actualNum != null && expectedNum != null) actualNum < expectedNum else actual < expected
             else -> false
+        }
+    }
+
+    /**
+     * Strips an accidentally-wrapped ${...} from a field that's meant to hold
+     * a bare variable NAME (Set Variable's "name", or an outputVariable) —
+     * people naturally type ${myVar} out of habit since that's how you
+     * REFERENCE a variable elsewhere, but defining one just needs the name.
+     */
+    private fun normalizeVariableName(raw: String): String {
+        val trimmed = raw.trim()
+        return if (trimmed.startsWith("\${") && trimmed.endsWith("}")) {
+            trimmed.substring(2, trimmed.length - 1)
+        } else {
+            trimmed
         }
     }
 

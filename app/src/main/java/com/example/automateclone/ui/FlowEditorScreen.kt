@@ -461,6 +461,14 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
         // block that produces an output, like Shell Command / OCR Image's
         // "outputVariable" — all of them need to show up here or there's no
         // way to know they exist when typing ${...} elsewhere.
+        fun normalizeVariableName(raw: String): String {
+            val trimmed = raw.trim()
+            return if (trimmed.startsWith("\${") && trimmed.endsWith("}")) {
+                trimmed.substring(2, trimmed.length - 1)
+            } else {
+                trimmed
+            }
+        }
         val availableVariables = flow.blocks
             .mapNotNull { b ->
                 when (b.type) {
@@ -470,6 +478,7 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
                     else -> null
                 }
             }
+            .map { normalizeVariableName(it) }
             .filter { it.isNotBlank() }
             .distinct()
         BlockConfigDialog(
