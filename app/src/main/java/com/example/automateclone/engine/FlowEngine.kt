@@ -134,6 +134,7 @@ class FlowEngine(private val context: Context) {
                     BlockType.SHELL_COMMAND -> {
                         val command = substituteVariables(block.config["command"].orEmpty(), variables)
                         val outputVar = block.config["outputVariable"].orEmpty()
+                        FlowLog.add(flow.name, "Shell: running $command (10s timeout)")
                         val result = runShellCommand(command)
                         FlowLog.add(flow.name, "Shell: $command -> ${result.take(120)}")
                         if (outputVar.isNotBlank()) variables[outputVar] = result
@@ -159,12 +160,18 @@ class FlowEngine(private val context: Context) {
     private suspend fun runShellCommand(command: String): String = withContext(Dispatchers.IO) {
         if (command.isBlank()) return@withContext "Error: no command given"
         try {
-            val process = ProcessBuilder("sh", "-c", command).redirectErrorStream(true).start()
+            // Run from the app's own storage dir — readable/writable by this
+            // app's sandbox — so a bare `ls` (no path) works instead of
+            // failing with permission denied in an unreadable default cwd.
+            val process = ProcessBuilder("sh", "-c", command)
+                .redirectErrorStream(true)
+                .directory(context.filesDir)
+                .start()
             val output = process.inputStream.bufferedReader().readText()
             val finished = process.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
                 process.destroy()
-                "Error: command timed out after 10s"
+                "Error: command timed out after 10s — commands like 'ping' run forever unless you add a stop count (e.g. ping -c 4 host)"
             } else {
                 output.trim()
             }

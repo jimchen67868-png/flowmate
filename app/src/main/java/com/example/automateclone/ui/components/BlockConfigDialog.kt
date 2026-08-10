@@ -71,7 +71,7 @@ private val COMMON_SHELL_COMMANDS = listOf(
     "grep" to "search text",
     "find" to "find files",
     "sleep" to "pause N seconds",
-    "ping" to "network ping",
+    "ping" to "network ping (add -c 4 to stop)",
     "id" to "user/group ids",
     "uname" to "system info",
     "top" to "process snapshot",
