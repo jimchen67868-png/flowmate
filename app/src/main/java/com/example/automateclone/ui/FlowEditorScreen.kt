@@ -457,9 +457,20 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     }
 
     editingBlock?.let { block ->
+        // Variables can come from Set Variable's "name" field, or from any
+        // block that produces an output, like Shell Command / OCR Image's
+        // "outputVariable" — all of them need to show up here or there's no
+        // way to know they exist when typing ${...} elsewhere.
         val availableVariables = flow.blocks
-            .filter { it.type == com.example.automateclone.model.BlockType.SET_VARIABLE }
-            .mapNotNull { it.config["name"]?.takeIf { name -> name.isNotBlank() } }
+            .mapNotNull { b ->
+                when (b.type) {
+                    com.example.automateclone.model.BlockType.SET_VARIABLE -> b.config["name"]
+                    com.example.automateclone.model.BlockType.SHELL_COMMAND,
+                    com.example.automateclone.model.BlockType.OCR_IMAGE -> b.config["outputVariable"]
+                    else -> null
+                }
+            }
+            .filter { it.isNotBlank() }
             .distinct()
         BlockConfigDialog(
             block = block,
