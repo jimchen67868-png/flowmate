@@ -1,5 +1,7 @@
 package com.example.automateclone.ui
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,7 +23,19 @@ fun FlowListScreen(onOpenFlow: (AutomationFlow) -> Unit) {
     var flows by remember { mutableStateOf(repo.loadAll(), policy = referentialEqualityPolicy()) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Flowmate") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Flowmate") },
+                actions = {
+                    // Usage Access can't be requested via a normal runtime
+                    // permission dialog — this jumps straight to the settings
+                    // screen where it's granted, same as other apps do.
+                    TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    }) { Text("Usage Access") }
+                }
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = {
                 val newFlow = AutomationFlow(name = "New Flow ${flows.size + 1}")
