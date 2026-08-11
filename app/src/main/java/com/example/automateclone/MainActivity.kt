@@ -1,8 +1,10 @@
 package com.example.automateclone
 
 import android.Manifest
+import android.app.Activity
 import android.app.AlarmManager
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
+import com.example.automateclone.actions.ScreenCaptureService
 import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.triggers.DeviceStateTriggerService
 import com.example.automateclone.triggers.TimeTriggerScheduler
@@ -24,6 +27,22 @@ class MainActivity : ComponentActivity() {
     private val requestPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { }
+
+    private val screenCaptureLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
+                putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(ScreenCaptureService.EXTRA_DATA, result.data)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,12 +57,20 @@ class MainActivity : ComponentActivity() {
                 var openFlow by remember { mutableStateOf<AutomationFlow?>(null) }
                 val current = openFlow
                 if (current == null) {
-                    FlowListScreen(onOpenFlow = { openFlow = it })
+                    FlowListScreen(
+                        onOpenFlow = { openFlow = it },
+                        onRequestScreenshotPermission = { requestScreenCapture() }
+                    )
                 } else {
                     FlowEditorScreen(initialFlow = current, onBack = { openFlow = null })
                 }
             }
         }
+    }
+
+    private fun requestScreenCapture() {
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        screenCaptureLauncher.launch(manager.createScreenCaptureIntent())
     }
 
     private fun requestRuntimePermissions() {

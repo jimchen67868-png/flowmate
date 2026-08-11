@@ -26,7 +26,10 @@ enum class BlockType(
     SET_VARIABLE(BlockCategory.LOGIC, "Set Variable", listOf("name", "value")),
     LOOP(BlockCategory.LOGIC, "Loop", listOf("count")),
     SHELL_COMMAND(BlockCategory.LOGIC, "Shell Command", listOf("command", "outputVariable")),
-    OCR_IMAGE(BlockCategory.LOGIC, "OCR Image", listOf("imagePath", "outputVariable"))
+    OCR_IMAGE(BlockCategory.LOGIC, "OCR Image", listOf("imagePath", "outputVariable")),
+    SCREENSHOT(BlockCategory.LOGIC, "Screenshot", listOf("outputVariable")),
+    CROP_IMAGE(BlockCategory.LOGIC, "Crop Image", listOf("imagePath", "x", "y", "width", "height", "outputVariable")),
+    PICK_COLOR(BlockCategory.LOGIC, "Pick Color", listOf("imagePath", "x", "y", "outputVariable"))
 }
 
 fun BlockType.outputPorts(): List<String> = when (this) {

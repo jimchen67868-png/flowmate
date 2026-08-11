@@ -17,7 +17,10 @@ import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.model.FlowRepository
 
 @Composable
-fun FlowListScreen(onOpenFlow: (AutomationFlow) -> Unit) {
+fun FlowListScreen(
+    onOpenFlow: (AutomationFlow) -> Unit,
+    onRequestScreenshotPermission: () -> Unit = {}
+) {
     val context = LocalContext.current
     val repo = remember { FlowRepository(context) }
     var flows by remember { mutableStateOf(repo.loadAll(), policy = referentialEqualityPolicy()) }
@@ -27,9 +30,7 @@ fun FlowListScreen(onOpenFlow: (AutomationFlow) -> Unit) {
             TopAppBar(
                 title = { Text("Flowmate") },
                 actions = {
-                    // Usage Access can't be requested via a normal runtime
-                    // permission dialog — this jumps straight to the settings
-                    // screen where it's granted, same as other apps do.
+                    TextButton(onClick = onRequestScreenshotPermission) { Text("Enable Screenshot") }
                     TextButton(onClick = {
                         context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                     }) { Text("Usage Access") }

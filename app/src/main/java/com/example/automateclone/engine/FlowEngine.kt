@@ -2,9 +2,12 @@ package com.example.automateclone.engine
 
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
 import com.example.automateclone.actions.ActionExecutor
+import com.example.automateclone.actions.ScreenCaptureService
 import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.model.Block
 import com.example.automateclone.model.BlockCategory
@@ -22,6 +25,7 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -146,6 +150,33 @@ class FlowEngine(private val context: Context) {
                         FlowLog.add(flow.name, "OCR($path) -> ${result.take(80)}")
                         if (outputVar.isNotBlank()) variables[outputVar] = result
                     }
+                    BlockType.SCREENSHOT -> {
+                        val outputVar = normalizeVariableName(block.config["outputVariable"].orEmpty())
+                        val result = ScreenCaptureService.instance?.captureScreenshot()
+                            ?: "Error: screenshot not enabled — tap Enable Screenshot on the flow list screen"
+                        FlowLog.add(flow.name, "Screenshot -> ${result.take(80)}")
+                        if (outputVar.isNotBlank()) variables[outputVar] = result
+                    }
+                    BlockType.CROP_IMAGE -> {
+                        val path = substituteVariables(block.config["imagePath"].orEmpty(), variables)
+                        val x = substituteVariables(block.config["x"].orEmpty(), variables).toIntOrNull() ?: 0
+                        val y = substituteVariables(block.config["y"].orEmpty(), variables).toIntOrNull() ?: 0
+                        val w = substituteVariables(block.config["width"].orEmpty(), variables).toIntOrNull() ?: 0
+                        val h = substituteVariables(block.config["height"].orEmpty(), variables).toIntOrNull() ?: 0
+                        val outputVar = normalizeVariableName(block.config["outputVariable"].orEmpty())
+                        val result = cropImage(path, x, y, w, h)
+                        FlowLog.add(flow.name, "Crop($path, $x,$y,${w}x$h) -> ${result.take(80)}")
+                        if (outputVar.isNotBlank()) variables[outputVar] = result
+                    }
+                    BlockType.PICK_COLOR -> {
+                        val path = substituteVariables(block.config["imagePath"].orEmpty(), variables)
+                        val x = substituteVariables(block.config["x"].orEmpty(), variables).toIntOrNull() ?: 0
+                        val y = substituteVariables(block.config["y"].orEmpty(), variables).toIntOrNull() ?: 0
+                        val outputVar = normalizeVariableName(block.config["outputVariable"].orEmpty())
+                        val result = pickColor(path, x, y)
+                        FlowLog.add(flow.name, "PickColor($path, $x,$y) -> $result")
+                        if (outputVar.isNotBlank()) variables[outputVar] = result
+                    }
                     else -> {}
                 }
             }
@@ -160,9 +191,6 @@ class FlowEngine(private val context: Context) {
     private suspend fun runShellCommand(command: String): String = withContext(Dispatchers.IO) {
         if (command.isBlank()) return@withContext "Error: no command given"
         try {
-            // Run from the app's own storage dir — readable/writable by this
-            // app's sandbox — so a bare `ls` (no path) works instead of
-            // failing with permission denied in an unreadable default cwd.
             val process = ProcessBuilder("sh", "-c", command)
                 .redirectErrorStream(true)
                 .directory(context.filesDir)
@@ -183,16 +211,54 @@ class FlowEngine(private val context: Context) {
     private suspend fun runOcr(path: String): String = withContext(Dispatchers.IO) {
         if (path.isBlank()) return@withContext "Error: no image path given"
         try {
-            val uri = when {
-                path.startsWith("content://") || path.startsWith("file://") -> Uri.parse(path)
-                else -> Uri.fromFile(File(path))
-            }
-            val image = InputImage.fromFilePath(context, uri)
+            val image = InputImage.fromFilePath(context, resolveImageUri(path))
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             recognizer.process(image).await().text
         } catch (e: Exception) {
             "Error: ${e.message}"
         }
+    }
+
+    private suspend fun cropImage(path: String, x: Int, y: Int, width: Int, height: Int): String = withContext(Dispatchers.IO) {
+        if (path.isBlank()) return@withContext "Error: no image path given"
+        try {
+            val original = context.contentResolver.openInputStream(resolveImageUri(path))?.use {
+                BitmapFactory.decodeStream(it)
+            } ?: return@withContext "Error: couldn't decode image"
+
+            val safeX = x.coerceIn(0, (original.width - 1).coerceAtLeast(0))
+            val safeY = y.coerceIn(0, (original.height - 1).coerceAtLeast(0))
+            val safeW = width.coerceIn(1, (original.width - safeX).coerceAtLeast(1))
+            val safeH = height.coerceIn(1, (original.height - safeY).coerceAtLeast(1))
+
+            val cropped = Bitmap.createBitmap(original, safeX, safeY, safeW, safeH)
+            val file = File(context.filesDir, "crop_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { out -> cropped.compress(Bitmap.CompressFormat.PNG, 100, out) }
+            file.absolutePath
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+
+    private suspend fun pickColor(path: String, x: Int, y: Int): String = withContext(Dispatchers.IO) {
+        if (path.isBlank()) return@withContext "Error: no image path given"
+        try {
+            val bitmap = context.contentResolver.openInputStream(resolveImageUri(path))?.use {
+                BitmapFactory.decodeStream(it)
+            } ?: return@withContext "Error: couldn't decode image"
+
+            val safeX = x.coerceIn(0, (bitmap.width - 1).coerceAtLeast(0))
+            val safeY = y.coerceIn(0, (bitmap.height - 1).coerceAtLeast(0))
+            val pixel = bitmap.getPixel(safeX, safeY)
+            String.format("#%06X", 0xFFFFFF and pixel)
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+
+    private fun resolveImageUri(path: String): Uri = when {
+        path.startsWith("content://") || path.startsWith("file://") -> Uri.parse(path)
+        else -> Uri.fromFile(File(path))
     }
 
     private fun evaluateCondition(block: Block, variables: Map<String, String>): Boolean {
@@ -211,12 +277,6 @@ class FlowEngine(private val context: Context) {
         }
     }
 
-    /**
-     * Strips an accidentally-wrapped ${...} from a field that's meant to hold
-     * a bare variable NAME (Set Variable's "name", or an outputVariable) —
-     * people naturally type ${myVar} out of habit since that's how you
-     * REFERENCE a variable elsewhere, but defining one just needs the name.
-     */
     private fun normalizeVariableName(raw: String): String {
         val trimmed = raw.trim()
         return if (trimmed.startsWith("\${") && trimmed.endsWith("}")) {
