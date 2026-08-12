@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -35,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -118,13 +121,6 @@ private fun insertFunctionAtCursor(value: TextFieldValue, funcName: String): Tex
     return TextFieldValue(newText, TextRange(newCursor))
 }
 
-private fun insertVariableTemplateAtCursor(value: TextFieldValue): TextFieldValue {
-    val cursor = value.selection.start
-    val insertion = "\${}"
-    val newText = value.text.substring(0, cursor) + insertion + value.text.substring(cursor)
-    return TextFieldValue(newText, TextRange(cursor + 2))
-}
-
 private fun completeVariable(value: TextFieldValue, fullName: String): TextFieldValue {
     val cursor = value.selection.start
     val before = value.text.substring(0, cursor)
@@ -177,6 +173,117 @@ private val ENUM_FIELD_OPTIONS: Map<Pair<BlockType, String>, List<Pair<String, S
 )
 
 @Composable
+private fun ExpressionField(
+    fieldKey: String,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    isCode: Boolean,
+    onEnterCodeMode: () -> Unit,
+    onExitCodeMode: () -> Unit,
+    availableVariables: List<String>,
+    fxMenuOpen: Boolean,
+    onFxMenuOpenChange: (Boolean) -> Unit,
+    shellSuggestionsFor: String? = null
+) {
+    val partial = if (isCode) currentPartialVariable(value) else null
+    val variableSuggestions = if (partial != null) {
+        availableVariables.filter { it.startsWith(partial, ignoreCase = true) }
+    } else emptyList()
+    val functionSuggestions = if (partial != null) {
+        BUILTIN_FUNCTIONS.filter { it.first.startsWith(partial, ignoreCase = true) }
+    } else emptyList()
+    val shellCommandSuggestions = if (isCode && shellSuggestionsFor == fieldKey) {
+        currentShellCommandWord(value)?.takeIf { it.isNotEmpty() }?.let { word ->
+            COMMON_SHELL_COMMANDS.filter { it.first.startsWith(word, ignoreCase = true) }
+        } ?: emptyList()
+    } else emptyList()
+
+    Column(Modifier.padding(vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = { Text(fieldKey) },
+                textStyle = if (isCode) {
+                    LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace)
+                } else {
+                    LocalTextStyle.current
+                },
+                modifier = Modifier.weight(1f)
+            )
+            if (isCode) {
+                Box {
+                    TextButton(onClick = { onFxMenuOpenChange(true) }) { Text("fx") }
+                    DropdownMenu(
+                        expanded = fxMenuOpen,
+                        onDismissRequest = { onFxMenuOpenChange(false) }
+                    ) {
+                        if (availableVariables.isNotEmpty()) {
+                            DropdownMenuItem(text = { Text("Variables", fontSize = 11.sp) }, onClick = {}, enabled = false)
+                            availableVariables.forEach { name ->
+                                DropdownMenuItem(
+                                    text = { Text(name) },
+                                    onClick = {
+                                        onValueChange(insertVariableAtCursor(value, name))
+                                        onFxMenuOpenChange(false)
+                                    }
+                                )
+                            }
+                        }
+                        DropdownMenuItem(text = { Text("Functions", fontSize = 11.sp) }, onClick = {}, enabled = false)
+                        BUILTIN_FUNCTIONS.forEach { (name, signature) ->
+                            DropdownMenuItem(
+                                text = { Text(signature) },
+                                onClick = {
+                                    onValueChange(insertFunctionAtCursor(value, name))
+                                    onFxMenuOpenChange(false)
+                                }
+                            )
+                        }
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Switch to simple value") },
+                            onClick = {
+                                onExitCodeMode()
+                                onFxMenuOpenChange(false)
+                            }
+                        )
+                    }
+                }
+            } else {
+                TextButton(onClick = onEnterCodeMode) { Text("fx") }
+            }
+        }
+        if (isCode && (shellCommandSuggestions.isNotEmpty() || variableSuggestions.isNotEmpty() || functionSuggestions.isNotEmpty())) {
+            Row(
+                Modifier
+                    .padding(top = 2.dp)
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                shellCommandSuggestions.forEach { (name, desc) ->
+                    TextButton(
+                        onClick = { onValueChange(completeShellCommand(value, name)) },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) { Text("$name — $desc", fontSize = 12.sp) }
+                }
+                variableSuggestions.forEach { name ->
+                    TextButton(
+                        onClick = { onValueChange(completeVariable(value, name)) },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) { Text(name, fontSize = 12.sp) }
+                }
+                functionSuggestions.forEach { (name, _) ->
+                    TextButton(
+                        onClick = { onValueChange(completeFunction(value, name)) },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) { Text("$name()", fontSize = 12.sp) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun BlockConfigDialog(
     block: Block,
     availableVariables: List<String> = emptyList(),
@@ -189,6 +296,10 @@ fun BlockConfigDialog(
             block.config.forEach { (k, v) -> put(k, TextFieldValue(v)) }
         }
     }
+    var codeModeKeys by remember {
+        mutableStateOf(block.config.filterValues { it.contains("\${") }.keys.toSet())
+    }
+    var manualEntryKeys by remember { mutableStateOf(setOf<String>()) }
     var showAppPicker by remember { mutableStateOf(false) }
     var colorPickerKey by remember { mutableStateOf<String?>(null) }
     var fxMenuKey by remember { mutableStateOf<String?>(null) }
@@ -241,7 +352,7 @@ fun BlockConfigDialog(
                 block.type.configKeys.forEach { key ->
                     val enumOptions = ENUM_FIELD_OPTIONS[block.type to key]
                     when {
-                        block.type == BlockType.LAUNCH_APP && key == "packageName" -> {
+                        block.type == BlockType.LAUNCH_APP && key == "packageName" && key !in manualEntryKeys -> {
                             val currentPackage = fields[key]?.text.orEmpty()
                             val label = remember(currentPackage) {
                                 if (currentPackage.isBlank()) {
@@ -256,11 +367,14 @@ fun BlockConfigDialog(
                                     }
                                 }
                             }
-                            OutlinedButton(
-                                onClick = { showAppPicker = true },
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            ) {
-                                Text(label ?: "Choose an app")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(
+                                    onClick = { showAppPicker = true },
+                                    modifier = Modifier.weight(1f).padding(vertical = 4.dp)
+                                ) {
+                                    Text(label ?: "Choose an app")
+                                }
+                                TextButton(onClick = { manualEntryKeys = manualEntryKeys + key }) { Text("Manual") }
                             }
                         }
                         key == "colorHex" || key == "color" -> {
@@ -281,7 +395,7 @@ fun BlockConfigDialog(
                                 }
                             }
                         }
-                        key == "imagePath" -> {
+                        key == "imagePath" && key !in manualEntryKeys -> {
                             val current = fields[key]?.text.orEmpty()
                             val displayName = remember(current) {
                                 if (current.isBlank()) {
@@ -294,14 +408,17 @@ fun BlockConfigDialog(
                                     }
                                 }
                             }
-                            OutlinedButton(
-                                onClick = {
-                                    pendingImagePickKey = key
-                                    imagePickerLauncher.launch(arrayOf("image/*"))
-                                },
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            ) {
-                                Text(displayName ?: "Choose an image")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(
+                                    onClick = {
+                                        pendingImagePickKey = key
+                                        imagePickerLauncher.launch(arrayOf("image/*"))
+                                    },
+                                    modifier = Modifier.weight(1f).padding(vertical = 4.dp)
+                                ) {
+                                    Text(displayName ?: "Choose an image")
+                                }
+                                TextButton(onClick = { manualEntryKeys = manualEntryKeys + key }) { Text("Manual") }
                             }
                         }
                         enumOptions != null -> {
@@ -332,89 +449,31 @@ fun BlockConfigDialog(
                         }
                         else -> {
                             val value = fields[key] ?: TextFieldValue("")
-                            val partial = currentPartialVariable(value)
-                            val variableSuggestions = if (partial != null) {
-                                availableVariables.filter { it.startsWith(partial, ignoreCase = true) }
-                            } else emptyList()
-                            val functionSuggestions = if (partial != null) {
-                                BUILTIN_FUNCTIONS.filter { it.first.startsWith(partial, ignoreCase = true) }
-                            } else emptyList()
-                            val shellCommandSuggestions = if (block.type == BlockType.SHELL_COMMAND && key == "command") {
-                                currentShellCommandWord(value)?.takeIf { it.isNotEmpty() }?.let { word ->
-                                    COMMON_SHELL_COMMANDS.filter { it.first.startsWith(word, ignoreCase = true) }
-                                } ?: emptyList()
-                            } else emptyList()
+                            val isCode = key in codeModeKeys
+                            val isManualPickerField = key in manualEntryKeys &&
+                                (key == "imagePath" || (block.type == BlockType.LAUNCH_APP && key == "packageName"))
 
-                            Column(Modifier.padding(vertical = 4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    OutlinedTextField(
-                                        value = value,
-                                        onValueChange = { fields[key] = it },
-                                        label = { Text(key) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Box {
-                                        TextButton(onClick = {
-                                            if (availableVariables.isEmpty()) {
-                                                fields[key] = insertVariableTemplateAtCursor(value)
-                                            } else {
-                                                fxMenuKey = key
-                                            }
-                                        }) { Text("fx") }
-                                        DropdownMenu(
-                                            expanded = fxMenuKey == key,
-                                            onDismissRequest = { fxMenuKey = null }
-                                        ) {
-                                            if (availableVariables.isNotEmpty()) {
-                                                DropdownMenuItem(text = { Text("Variables", fontSize = 11.sp) }, onClick = {}, enabled = false)
-                                                availableVariables.forEach { name ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(name) },
-                                                        onClick = {
-                                                            fields[key] = insertVariableAtCursor(value, name)
-                                                            fxMenuKey = null
-                                                        }
-                                                    )
-                                                }
-                                            }
-                                            DropdownMenuItem(text = { Text("Functions", fontSize = 11.sp) }, onClick = {}, enabled = false)
-                                            BUILTIN_FUNCTIONS.forEach { (name, signature) ->
-                                                DropdownMenuItem(
-                                                    text = { Text(signature) },
-                                                    onClick = {
-                                                        fields[key] = insertFunctionAtCursor(value, name)
-                                                        fxMenuKey = null
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                                if (shellCommandSuggestions.isNotEmpty() || variableSuggestions.isNotEmpty() || functionSuggestions.isNotEmpty()) {
-                                    Row(
-                                        Modifier
-                                            .padding(top = 2.dp)
-                                            .horizontalScroll(rememberScrollState())
-                                    ) {
-                                        shellCommandSuggestions.forEach { (name, desc) ->
-                                            TextButton(
-                                                onClick = { fields[key] = completeShellCommand(value, name) },
-                                                modifier = Modifier.padding(end = 4.dp)
-                                            ) { Text("$name — $desc", fontSize = 12.sp) }
-                                        }
-                                        variableSuggestions.forEach { name ->
-                                            TextButton(
-                                                onClick = { fields[key] = completeVariable(value, name) },
-                                                modifier = Modifier.padding(end = 4.dp)
-                                            ) { Text(name, fontSize = 12.sp) }
-                                        }
-                                        functionSuggestions.forEach { (name, _) ->
-                                            TextButton(
-                                                onClick = { fields[key] = completeFunction(value, name) },
-                                                modifier = Modifier.padding(end = 4.dp)
-                                            ) { Text("$name()", fontSize = 12.sp) }
-                                        }
-                                    }
+                            Column {
+                                ExpressionField(
+                                    fieldKey = key,
+                                    value = value,
+                                    onValueChange = { fields[key] = it },
+                                    isCode = isCode,
+                                    onEnterCodeMode = {
+                                        codeModeKeys = codeModeKeys + key
+                                        fxMenuKey = key
+                                    },
+                                    onExitCodeMode = { codeModeKeys = codeModeKeys - key },
+                                    availableVariables = availableVariables,
+                                    fxMenuOpen = fxMenuKey == key,
+                                    onFxMenuOpenChange = { open -> fxMenuKey = if (open) key else null },
+                                    shellSuggestionsFor = if (block.type == BlockType.SHELL_COMMAND && key == "command") key else null
+                                )
+                                if (isManualPickerField) {
+                                    TextButton(
+                                        onClick = { manualEntryKeys = manualEntryKeys - key },
+                                        modifier = Modifier.padding(top = (-8).dp)
+                                    ) { Text("Use picker instead") }
                                 }
                             }
                         }
