@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -472,7 +474,7 @@ fun BlockConfigDialog(
                                 if (isManualPickerField) {
                                     TextButton(
                                         onClick = { manualEntryKeys = manualEntryKeys - key },
-                                        modifier = Modifier.padding(top = (-8).dp)
+                                        modifier = Modifier.offset(y = (-8).dp)
                                     ) { Text("Use picker instead") }
                                 }
                             }
