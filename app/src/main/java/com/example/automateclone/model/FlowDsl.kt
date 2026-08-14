@@ -8,6 +8,27 @@ object FlowDsl {
         Regex("""^(trigger|action|logic)\s+([A-Z_]+)\s*\(([^)]*)\)\s+as\s+([A-Za-z0-9_]+)$""")
     private val configPairRegex = Regex("""(\w+)\s*=\s*("([^"]*)"|[^,]+)""")
 
+    private fun escapeValue(value: String): String =
+        value.replace("\\", "\\\\").replace("\n", "\\n")
+
+    private fun unescapeValue(value: String): String {
+        val sb = StringBuilder()
+        var i = 0
+        while (i < value.length) {
+            val c = value[i]
+            if (c == '\\' && i + 1 < value.length) {
+                when (value[i + 1]) {
+                    'n' -> { sb.append('\n'); i += 2 }
+                    '\\' -> { sb.append('\\'); i += 2 }
+                    else -> { sb.append(c); i += 1 }
+                }
+            } else {
+                sb.append(c); i += 1
+            }
+        }
+        return sb.toString()
+    }
+
     fun serialize(flow: AutomationFlow): String {
         if (flow.blocks.isEmpty()) {
             return buildString {
@@ -26,7 +47,7 @@ object FlowDsl {
             appendLine("flow \"${flow.name}\" enabled=${flow.enabled} {")
             flow.blocks.forEach { b ->
                 val keyword = b.type.category.name.lowercase()
-                val config = b.config.entries.joinToString(", ") { (k, v) -> "$k=\"$v\"" }
+                val config = b.config.entries.joinToString(", ") { (k, v) -> "$k=\"${escapeValue(v)}\"" }
                 appendLine("    $keyword ${b.type.name}($config) as ${aliasOf[b.id]}")
             }
             if (flow.connections.isNotEmpty()) {
@@ -86,8 +107,8 @@ object FlowDsl {
                 val config = mutableMapOf<String, String>()
                 configPairRegex.findAll(configRaw).forEach { m ->
                     val key = m.groupValues[1]
-                    val value = m.groupValues[2].trim().removeSurrounding("\"")
-                    config[key] = value
+                    val rawValue = m.groupValues[2].trim().removeSurrounding("\"")
+                    config[key] = unescapeValue(rawValue)
                 }
                 val block = Block(type = type, config = config)
                 blocks += block
