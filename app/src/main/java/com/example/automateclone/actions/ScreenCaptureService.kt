@@ -15,7 +15,9 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -27,6 +29,13 @@ import kotlin.coroutines.resumeWithException
 class ScreenCaptureService : Service() {
 
     private var mediaProjection: MediaProjection? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() {
+            mediaProjection = null
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundWithNotification()
@@ -34,7 +43,9 @@ class ScreenCaptureService : Service() {
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
         if (resultCode != 0 && data != null) {
             val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjection = manager.getMediaProjection(resultCode, data)
+            val projection = manager.getMediaProjection(resultCode, data)
+            projection.registerCallback(projectionCallback, mainHandler)
+            mediaProjection = projection
         }
         instance = this
         return START_STICKY
@@ -42,6 +53,7 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mediaProjection?.unregisterCallback(projectionCallback)
         mediaProjection?.stop()
         mediaProjection = null
         if (instance == this) instance = null
