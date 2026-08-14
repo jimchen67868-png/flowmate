@@ -15,6 +15,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 import com.example.automateclone.actions.ScreenCaptureService
+import com.example.automateclone.engine.FlowLog
+import com.example.automateclone.engine.LogLevel
 import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.triggers.DeviceStateTriggerService
 import com.example.automateclone.triggers.TimeTriggerScheduler
@@ -31,6 +33,10 @@ class MainActivity : ComponentActivity() {
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        FlowLog.add(
+            "System",
+            "Screenshot: consent dialog returned resultCode=${result.resultCode} (OK=${Activity.RESULT_OK}) hasData=${result.data != null}"
+        )
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                 putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
@@ -41,6 +47,8 @@ class MainActivity : ComponentActivity() {
             } else {
                 startService(serviceIntent)
             }
+        } else {
+            FlowLog.add("System", "Screenshot: user denied or cancelled consent dialog", LogLevel.ERROR)
         }
     }
 

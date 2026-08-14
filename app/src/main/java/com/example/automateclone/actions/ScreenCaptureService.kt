@@ -20,6 +20,8 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.DisplayMetrics
 import android.view.WindowManager
+import com.example.automateclone.engine.FlowLog
+import com.example.automateclone.engine.LogLevel
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import java.io.FileOutputStream
@@ -33,19 +35,34 @@ class ScreenCaptureService : Service() {
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
+            FlowLog.add("System", "Screenshot: projection onStop() fired — token invalidated", LogLevel.ERROR)
             mediaProjection = null
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundWithNotification()
+        try {
+            startForegroundWithNotification()
+        } catch (e: Exception) {
+            FlowLog.add("System", "Screenshot: startForeground failed — ${e.javaClass.simpleName}: ${e.message}", LogLevel.ERROR)
+            instance = this
+            return START_STICKY
+        }
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
+        FlowLog.add("System", "Screenshot: onStartCommand resultCode=$resultCode hasData=${data != null}")
         if (resultCode != 0 && data != null) {
-            val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val projection = manager.getMediaProjection(resultCode, data)
-            projection.registerCallback(projectionCallback, mainHandler)
-            mediaProjection = projection
+            try {
+                val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                val projection = manager.getMediaProjection(resultCode, data)
+                projection.registerCallback(projectionCallback, mainHandler)
+                mediaProjection = projection
+                FlowLog.add("System", "Screenshot: mediaProjection acquired OK")
+            } catch (e: Exception) {
+                FlowLog.add("System", "Screenshot: getMediaProjection failed — ${e.javaClass.simpleName}: ${e.message}", LogLevel.ERROR)
+            }
+        } else {
+            FlowLog.add("System", "Screenshot: missing resultCode/data, projection NOT set", LogLevel.ERROR)
         }
         instance = this
         return START_STICKY
@@ -53,6 +70,7 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        FlowLog.add("System", "Screenshot: service onDestroy — projection cleared", LogLevel.ERROR)
         mediaProjection?.unregisterCallback(projectionCallback)
         mediaProjection?.stop()
         mediaProjection = null
@@ -63,7 +81,7 @@ class ScreenCaptureService : Service() {
 
     suspend fun captureScreenshot(): String {
         val projection = mediaProjection
-            ?: return "Error: screenshot not enabled — tap Enable Screenshot on the flow list screen"
+            ?: return "Error: screenshot not enabled — tap Enable Screenshot on the flow list screen (instance=${instance != null})"
 
         val metrics = DisplayMetrics()
         val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
