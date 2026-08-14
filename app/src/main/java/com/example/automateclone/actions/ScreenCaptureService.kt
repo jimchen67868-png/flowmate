@@ -31,11 +31,16 @@ import kotlin.coroutines.resumeWithException
 class ScreenCaptureService : Service() {
 
     private var mediaProjection: MediaProjection? = null
+    private var imageReader: ImageReader? = null
+    private var virtualDisplay: VirtualDisplay? = null
+    private var captureWidth = 0
+    private var captureHeight = 0
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             FlowLog.add("System", "Screenshot: projection onStop() fired — token invalidated", LogLevel.ERROR)
+            tearDownCaptureSurface()
             mediaProjection = null
         }
     }
@@ -53,13 +58,18 @@ class ScreenCaptureService : Service() {
         FlowLog.add("System", "Screenshot: onStartCommand resultCode=$resultCode hasData=${data != null}")
         if (resultCode != 0 && data != null) {
             try {
+                tearDownCaptureSurface()
+                mediaProjection?.unregisterCallback(projectionCallback)
+                mediaProjection?.stop()
+
                 val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 val projection = manager.getMediaProjection(resultCode, data)
                 projection.registerCallback(projectionCallback, mainHandler)
                 mediaProjection = projection
-                FlowLog.add("System", "Screenshot: mediaProjection acquired OK")
+                setUpCaptureSurface(projection)
+                FlowLog.add("System", "Screenshot: mediaProjection acquired + capture surface ready")
             } catch (e: Exception) {
-                FlowLog.add("System", "Screenshot: getMediaProjection failed — ${e.javaClass.simpleName}: ${e.message}", LogLevel.ERROR)
+                FlowLog.add("System", "Screenshot: setup failed — ${e.javaClass.simpleName}: ${e.message}", LogLevel.ERROR)
             }
         } else {
             FlowLog.add("System", "Screenshot: missing resultCode/data, projection NOT set", LogLevel.ERROR)
@@ -71,6 +81,7 @@ class ScreenCaptureService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         FlowLog.add("System", "Screenshot: service onDestroy — projection cleared", LogLevel.ERROR)
+        tearDownCaptureSurface()
         mediaProjection?.unregisterCallback(projectionCallback)
         mediaProjection?.stop()
         mediaProjection = null
@@ -79,25 +90,46 @@ class ScreenCaptureService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    suspend fun captureScreenshot(): String {
-        val projection = mediaProjection
-            ?: return "Error: screenshot not enabled — tap Enable Screenshot on the flow list screen (instance=${instance != null})"
-
+    private fun setUpCaptureSurface(projection: MediaProjection) {
         val metrics = DisplayMetrics()
         val windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getRealMetrics(metrics)
-        val width = metrics.widthPixels
-        val height = metrics.heightPixels
+        captureWidth = metrics.widthPixels
+        captureHeight = metrics.heightPixels
         val density = metrics.densityDpi
 
-        val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        var virtualDisplay: VirtualDisplay? = null
+        val reader = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, 2)
+        val display = projection.createVirtualDisplay(
+            "FlowmateScreenshot", captureWidth, captureHeight, density,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            reader.surface, null, mainHandler
+        )
+        imageReader = reader
+        virtualDisplay = display
+    }
+
+    private fun tearDownCaptureSurface() {
+        virtualDisplay?.release()
+        virtualDisplay = null
+        imageReader?.setOnImageAvailableListener(null, null)
+        imageReader?.close()
+        imageReader = null
+    }
+
+    suspend fun captureScreenshot(): String {
+        mediaProjection
+            ?: return "Error: screenshot not enabled — tap Enable Screenshot on the flow list screen (instance=${instance != null})"
+        val reader = imageReader
+            ?: return "Error: capture surface not ready — try tapping Enable Screenshot again"
+
+        val width = captureWidth
+        val height = captureHeight
 
         return try {
             val bitmap = suspendCancellableCoroutine<Bitmap> { cont ->
-                imageReader.setOnImageAvailableListener({ reader ->
-                    val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                reader.setOnImageAvailableListener({ r ->
+                    val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
                     try {
                         val plane = image.planes[0]
                         val buffer = plane.buffer
@@ -109,18 +141,14 @@ class ScreenCaptureService : Service() {
                         )
                         bmp.copyPixelsFromBuffer(buffer)
                         image.close()
+                        r.setOnImageAvailableListener(null, null)
                         if (cont.isActive) cont.resume(bmp)
                     } catch (e: Exception) {
                         image.close()
+                        r.setOnImageAvailableListener(null, null)
                         if (cont.isActive) cont.resumeWithException(e)
                     }
-                }, null)
-
-                virtualDisplay = projection.createVirtualDisplay(
-                    "FlowmateScreenshot", width, height, density,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                    imageReader.surface, null, null
-                )
+                }, mainHandler)
             }
 
             val file = File(filesDir, "screenshot_${System.currentTimeMillis()}.png")
@@ -130,9 +158,6 @@ class ScreenCaptureService : Service() {
             file.absolutePath
         } catch (e: Exception) {
             "Error: ${e.message}"
-        } finally {
-            virtualDisplay?.release()
-            imageReader.close()
         }
     }
 
