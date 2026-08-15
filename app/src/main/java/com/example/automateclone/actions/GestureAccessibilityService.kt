@@ -22,8 +22,14 @@ class GestureAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
 
-        val info = serviceInfo
-        val caps = info?.capabilities ?: -1
+        val info = serviceInfo ?: AccessibilityServiceInfo()
+        info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
+        info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+        info.notificationTimeout = 100
+        info.capabilities = info.capabilities or AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES
+        serviceInfo = info
+
+        val caps = serviceInfo?.capabilities ?: -1
         val hasGestureCap = (caps and AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES) != 0
         FlowLog.add(
             "System",
@@ -32,7 +38,7 @@ class GestureAccessibilityService : AccessibilityService() {
         if (!hasGestureCap) {
             FlowLog.add(
                 "System",
-                "Gestures: CAPABILITY_CAN_PERFORM_GESTURES missing — system did not grant gesture capability",
+                "Gestures: CAPABILITY_CAN_PERFORM_GESTURES still missing after forcing it — device may restrict this",
                 LogLevel.ERROR
             )
         }
