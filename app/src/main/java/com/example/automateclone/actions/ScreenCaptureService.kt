@@ -22,11 +22,11 @@ import android.util.DisplayMetrics
 import android.view.WindowManager
 import com.example.automateclone.engine.FlowLog
 import com.example.automateclone.engine.LogLevel
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 class ScreenCaptureService : Service() {
 
@@ -36,6 +36,9 @@ class ScreenCaptureService : Service() {
     private var captureWidth = 0
     private var captureHeight = 0
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var pendingContinuation: CancellableContinuation<Bitmap>? = null
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -98,10 +101,41 @@ class ScreenCaptureService : Service() {
         captureWidth = metrics.widthPixels
         captureHeight = metrics.heightPixels
         val density = metrics.densityDpi
+        val width = captureWidth
+        val height = captureHeight
 
-        val reader = ImageReader.newInstance(captureWidth, captureHeight, PixelFormat.RGBA_8888, 2)
+        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+
+        reader.setOnImageAvailableListener({ r ->
+            val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                val cont = pendingContinuation
+                if (cont != null && cont.isActive) {
+                    val plane = image.planes[0]
+                    val buffer = plane.buffer
+                    val pixelStride = plane.pixelStride
+                    val rowStride = plane.rowStride
+                    val rowPadding = rowStride - pixelStride * width
+                    val bmp = Bitmap.createBitmap(
+                        width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888
+                    )
+                    bmp.copyPixelsFromBuffer(buffer)
+                    pendingContinuation = null
+                    cont.resume(bmp) { }
+                }
+            } catch (e: Exception) {
+                val cont = pendingContinuation
+                if (cont != null && cont.isActive) {
+                    pendingContinuation = null
+                    cont.cancel(e)
+                }
+            } finally {
+                image.close()
+            }
+        }, mainHandler)
+
         val display = projection.createVirtualDisplay(
-            "FlowmateScreenshot", captureWidth, captureHeight, density,
+            "FlowmateScreenshot", width, height, density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             reader.surface, null, mainHandler
         )
@@ -110,6 +144,8 @@ class ScreenCaptureService : Service() {
     }
 
     private fun tearDownCaptureSurface() {
+        pendingContinuation?.let { if (it.isActive) it.cancel() }
+        pendingContinuation = null
         virtualDisplay?.release()
         virtualDisplay = null
         imageReader?.setOnImageAvailableListener(null, null)
@@ -120,37 +156,23 @@ class ScreenCaptureService : Service() {
     suspend fun captureScreenshot(): String {
         mediaProjection
             ?: return "Error: screenshot not enabled — tap Enable Screenshot on the flow list screen (instance=${instance != null})"
-        val reader = imageReader
-            ?: return "Error: capture surface not ready — try tapping Enable Screenshot again"
+        if (imageReader == null) {
+            return "Error: capture surface not ready — try tapping Enable Screenshot again"
+        }
 
-        val width = captureWidth
-        val height = captureHeight
+        val bitmap = withTimeoutOrNull(8000) {
+            suspendCancellableCoroutine<Bitmap> { cont ->
+                pendingContinuation = cont
+                cont.invokeOnCancellation {
+                    if (pendingContinuation === cont) pendingContinuation = null
+                }
+            }
+        } ?: run {
+            pendingContinuation = null
+            return "Error: timed out waiting for a frame — is the screen on and unlocked?"
+        }
 
         return try {
-            val bitmap = suspendCancellableCoroutine<Bitmap> { cont ->
-                reader.setOnImageAvailableListener({ r ->
-                    val image = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-                    try {
-                        val plane = image.planes[0]
-                        val buffer = plane.buffer
-                        val pixelStride = plane.pixelStride
-                        val rowStride = plane.rowStride
-                        val rowPadding = rowStride - pixelStride * width
-                        val bmp = Bitmap.createBitmap(
-                            width + rowPadding / pixelStride, height, Bitmap.Config.ARGB_8888
-                        )
-                        bmp.copyPixelsFromBuffer(buffer)
-                        image.close()
-                        r.setOnImageAvailableListener(null, null)
-                        if (cont.isActive) cont.resume(bmp)
-                    } catch (e: Exception) {
-                        image.close()
-                        r.setOnImageAvailableListener(null, null)
-                        if (cont.isActive) cont.resumeWithException(e)
-                    }
-                }, mainHandler)
-            }
-
             val file = File(filesDir, "screenshot_${System.currentTimeMillis()}.png")
             FileOutputStream(file).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
