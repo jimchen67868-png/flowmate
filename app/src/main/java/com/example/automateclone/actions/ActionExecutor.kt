@@ -23,7 +23,7 @@ object ActionExecutor {
 
     private const val CHANNEL_ID = "flowmate_actions"
 
-    fun execute(context: Context, block: Block) {
+    suspend fun execute(context: Context, block: Block) {
         when (block.type) {
             BlockType.SHOW_NOTIFICATION -> showNotification(
                 context,
@@ -45,8 +45,48 @@ object ActionExecutor {
             )
             BlockType.SET_WALLPAPER -> setWallpaperColor(context, block.config["colorHex"].orEmpty())
             BlockType.COPY_TO_CLIPBOARD -> copyToClipboard(context, block.config["text"].orEmpty())
+            BlockType.TAP -> performTap(block)
+            BlockType.LONG_PRESS -> performLongPress(block)
+            BlockType.SWIPE -> performSwipe(block)
             else -> { /* not an action block */ }
         }
+    }
+
+    private fun requireGestureService(): GestureAccessibilityService =
+        GestureAccessibilityService.instance
+            ?: throw IllegalStateException(
+                "Gestures not enabled — tap 'Enable Gestures' on the flow list screen, " +
+                    "then turn on Flowmate under Settings > Accessibility"
+            )
+
+    private suspend fun performTap(block: Block) {
+        val x = block.config["x"]?.toFloatOrNull()
+        val y = block.config["y"]?.toFloatOrNull()
+        if (x == null || y == null) throw IllegalArgumentException("Tap needs numeric x and y")
+        val result = requireGestureService().tap(x, y)
+        if (result.startsWith("Error")) throw IllegalStateException(result)
+    }
+
+    private suspend fun performLongPress(block: Block) {
+        val x = block.config["x"]?.toFloatOrNull()
+        val y = block.config["y"]?.toFloatOrNull()
+        val duration = block.config["durationMs"]?.toLongOrNull() ?: 500L
+        if (x == null || y == null) throw IllegalArgumentException("Long Press needs numeric x and y")
+        val result = requireGestureService().longPress(x, y, duration)
+        if (result.startsWith("Error")) throw IllegalStateException(result)
+    }
+
+    private suspend fun performSwipe(block: Block) {
+        val x1 = block.config["startX"]?.toFloatOrNull()
+        val y1 = block.config["startY"]?.toFloatOrNull()
+        val x2 = block.config["endX"]?.toFloatOrNull()
+        val y2 = block.config["endY"]?.toFloatOrNull()
+        val duration = block.config["durationMs"]?.toLongOrNull() ?: 300L
+        if (x1 == null || y1 == null || x2 == null || y2 == null) {
+            throw IllegalArgumentException("Swipe needs numeric startX, startY, endX, endY")
+        }
+        val result = requireGestureService().swipe(x1, y1, x2, y2, duration)
+        if (result.startsWith("Error")) throw IllegalStateException(result)
     }
 
     private fun showNotification(context: Context, title: String, text: String, colorHex: String?) {

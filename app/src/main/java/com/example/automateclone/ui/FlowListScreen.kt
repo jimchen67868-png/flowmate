@@ -32,6 +32,9 @@ fun FlowListScreen(
                 actions = {
                     TextButton(onClick = onRequestScreenshotPermission) { Text("Enable Screenshot") }
                     TextButton(onClick = {
+                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }) { Text("Enable Gestures") }
+                    TextButton(onClick = {
                         context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                     }) { Text("Usage Access") }
                 }

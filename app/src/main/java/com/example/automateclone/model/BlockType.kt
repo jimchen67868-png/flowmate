@@ -20,6 +20,9 @@ enum class BlockType(
     SET_VOLUME(BlockCategory.ACTION, "Set Volume", listOf("streamType", "level")),
     SET_WALLPAPER(BlockCategory.ACTION, "Set Wallpaper Color", listOf("colorHex")),
     COPY_TO_CLIPBOARD(BlockCategory.ACTION, "Copy to Clipboard", listOf("text")),
+    TAP(BlockCategory.ACTION, "Tap", listOf("x", "y")),
+    LONG_PRESS(BlockCategory.ACTION, "Long Press", listOf("x", "y", "durationMs")),
+    SWIPE(BlockCategory.ACTION, "Swipe", listOf("startX", "startY", "endX", "endY", "durationMs")),
 
     WAIT(BlockCategory.LOGIC, "Wait", listOf("durationMs")),
     IF_CONDITION(BlockCategory.LOGIC, "If", listOf("variable", "operator", "value")),

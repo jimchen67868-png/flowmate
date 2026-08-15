@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Flowmate</string>
+    <string name="accessibility_service_description">Lets Flowmate perform tap, long-press, and swipe actions that you configure in your own automation flows. Flowmate does not read screen content, capture text, or record what you do — it only injects the specific taps and swipes you explicitly add to a flow.</string>
 </resources>
