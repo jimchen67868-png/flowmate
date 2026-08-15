@@ -27,7 +27,7 @@ class GestureAccessibilityService : AccessibilityService() {
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         info.notificationTimeout = 100
         info.capabilities = info.capabilities or AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES
-        serviceInfo = info
+        setServiceInfo(info)
 
         val caps = serviceInfo?.capabilities ?: -1
         val hasGestureCap = (caps and AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES) != 0
