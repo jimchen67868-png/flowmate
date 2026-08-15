@@ -1,6 +1,7 @@
 package com.example.automateclone.actions
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Path
@@ -20,7 +21,21 @@ class GestureAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        FlowLog.add("System", "Gestures: accessibility service connected")
+
+        val info = serviceInfo
+        val caps = info?.capabilities ?: -1
+        val hasGestureCap = (caps and AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES) != 0
+        FlowLog.add(
+            "System",
+            "Gestures: service connected, capabilities=$caps canPerformGestures=$hasGestureCap"
+        )
+        if (!hasGestureCap) {
+            FlowLog.add(
+                "System",
+                "Gestures: CAPABILITY_CAN_PERFORM_GESTURES missing — system did not grant gesture capability",
+                LogLevel.ERROR
+            )
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -59,13 +74,16 @@ class GestureAccessibilityService : AccessibilityService() {
             suspendCancellableCoroutine<Boolean> { cont ->
                 val callback = object : GestureResultCallback() {
                     override fun onCompleted(gestureDescription: GestureDescription?) {
+                        FlowLog.add("System", "Gestures: onCompleted fired for $label")
                         if (cont.isActive) cont.resume(true)
                     }
                     override fun onCancelled(gestureDescription: GestureDescription?) {
+                        FlowLog.add("System", "Gestures: onCancelled fired for $label", LogLevel.ERROR)
                         if (cont.isActive) cont.resume(false)
                     }
                 }
                 val dispatched = dispatchGesture(gesture, callback, mainHandler)
+                FlowLog.add("System", "Gestures: dispatchGesture($label) returned $dispatched")
                 if (!dispatched && cont.isActive) {
                     cont.resume(false)
                 }
