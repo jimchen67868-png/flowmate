@@ -22,27 +22,19 @@ class GestureAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
 
-        val info = serviceInfo ?: AccessibilityServiceInfo()
-        info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
-        info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
-        info.notificationTimeout = 100
-        setServiceInfo(info)
+        logCapabilities("immediately on connect")
+        mainHandler.postDelayed({ logCapabilities("500ms after connect") }, 500)
+        mainHandler.postDelayed({ logCapabilities("2000ms after connect") }, 2000)
+    }
 
+    private fun logCapabilities(whenLabel: String) {
         val caps = serviceInfo?.capabilities ?: -1
+        val flags = serviceInfo?.flags ?: -1
         val hasGestureCap = (caps and AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES) != 0
         FlowLog.add(
             "System",
-            "Gestures: service connected, capabilities=$caps canPerformGestures=$hasGestureCap"
+            "Gestures ($whenLabel): capabilities=$caps flags=$flags canPerformGestures=$hasGestureCap"
         )
-        if (!hasGestureCap) {
-            FlowLog.add(
-                "System",
-                "Gestures: CAPABILITY_CAN_PERFORM_GESTURES missing — the system did not grant it. " +
-                    "Try disabling and re-enabling Flowmate in Accessibility settings, making sure to tap " +
-                    "Allow on any permission summary screen (not just the toggle).",
-                LogLevel.ERROR
-            )
-        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
