@@ -26,7 +26,6 @@ class GestureAccessibilityService : AccessibilityService() {
         info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
         info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
         info.notificationTimeout = 100
-        info.capabilities = info.capabilities or AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES
         setServiceInfo(info)
 
         val caps = serviceInfo?.capabilities ?: -1
@@ -38,7 +37,9 @@ class GestureAccessibilityService : AccessibilityService() {
         if (!hasGestureCap) {
             FlowLog.add(
                 "System",
-                "Gestures: CAPABILITY_CAN_PERFORM_GESTURES still missing after forcing it — device may restrict this",
+                "Gestures: CAPABILITY_CAN_PERFORM_GESTURES missing — the system did not grant it. " +
+                    "Try disabling and re-enabling Flowmate in Accessibility settings, making sure to tap " +
+                    "Allow on any permission summary screen (not just the toggle).",
                 LogLevel.ERROR
             )
         }
