@@ -15,9 +15,29 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        create("flowmateRelease") {
+            val keystorePath = System.getenv("KEYSTORE_PATH")
+            if (keystorePath != null) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfig = signingConfigs.getByName("flowmateRelease")
+            }
+        }
         release {
             isMinifyEnabled = false
+            if (System.getenv("KEYSTORE_PATH") != null) {
+                signingConfig = signingConfigs.getByName("flowmateRelease")
+            }
         }
     }
 

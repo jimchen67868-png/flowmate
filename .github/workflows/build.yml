@@ -25,7 +25,15 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Decode signing keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > $HOME/flowmate-release.keystore
+
       - name: Build debug APK
+        env:
+          KEYSTORE_PATH: /home/runner/flowmate-release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleDebug --stacktrace
 
       - name: Upload APK artifact
