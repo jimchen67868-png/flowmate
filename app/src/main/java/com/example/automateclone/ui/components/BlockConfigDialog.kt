@@ -2,6 +2,7 @@ package com.example.automateclone.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -43,8 +44,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.automateclone.actions.OverlayPicker
+import com.example.automateclone.actions.OverlayPickerService
 import com.example.automateclone.model.Block
 import com.example.automateclone.model.BlockType
+import kotlin.math.roundToInt
 
 private val BUILTIN_FUNCTIONS = listOf(
     "round" to "round(number, decimals)",
@@ -285,6 +289,17 @@ private fun ExpressionField(
     }
 }
 
+private fun isPositionGroupStart(type: BlockType, key: String): Boolean =
+    ((type == BlockType.TAP || type == BlockType.LONG_PRESS) && key == "x") ||
+        (type == BlockType.SWIPE && key == "startX")
+
+private fun isPositionGroupContinuation(type: BlockType, key: String): Boolean =
+    ((type == BlockType.TAP || type == BlockType.LONG_PRESS) && key == "y") ||
+        (type == BlockType.SWIPE && key in listOf("startY", "endX", "endY"))
+
+private fun positionGroupKeys(type: BlockType): List<String> =
+    if (type == BlockType.SWIPE) listOf("startX", "startY", "endX", "endY") else listOf("x", "y")
+
 @Composable
 fun BlockConfigDialog(
     block: Block,
@@ -353,7 +368,72 @@ fun BlockConfigDialog(
             Column {
                 block.type.configKeys.forEach { key ->
                     val enumOptions = ENUM_FIELD_OPTIONS[block.type to key]
+                    val groupKeys = positionGroupKeys(block.type)
+                    val groupActive = groupKeys.any { it in manualEntryKeys }
                     when {
+                        isPositionGroupContinuation(block.type, key) && !groupActive -> {
+                            // Skip — rendered together with the group's first key below,
+                            // unless the group has been switched to manual entry.
+                        }
+                        isPositionGroupStart(block.type, key) && !groupActive -> {
+                            val isSwipe = block.type == BlockType.SWIPE
+                            val label = if (isSwipe) {
+                                val sx = fields["startX"]?.text.orEmpty()
+                                val sy = fields["startY"]?.text.orEmpty()
+                                val ex = fields["endX"]?.text.orEmpty()
+                                val ey = fields["endY"]?.text.orEmpty()
+                                if (sx.isBlank() || sy.isBlank() || ex.isBlank() || ey.isBlank()) {
+                                    "Pick start & end points on screen"
+                                } else {
+                                    "($sx, $sy) -> ($ex, $ey)"
+                                }
+                            } else {
+                                val cx = fields["x"]?.text.orEmpty()
+                                val cy = fields["y"]?.text.orEmpty()
+                                if (cx.isBlank() || cy.isBlank()) "Pick location on screen" else "Location: ($cx, $cy)"
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(
+                                    onClick = {
+                                        if (!Settings.canDrawOverlays(context)) {
+                                            context.startActivity(
+                                                Intent(
+                                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                    Uri.parse("package:${context.packageName}")
+                                                )
+                                            )
+                                        } else {
+                                            OverlayPicker.onPicked = { points ->
+                                                if (isSwipe) {
+                                                    val p1 = points.getOrNull(0)
+                                                    val p2 = points.getOrNull(1)
+                                                    if (p1 != null) {
+                                                        fields["startX"] = TextFieldValue(p1.first.roundToInt().toString())
+                                                        fields["startY"] = TextFieldValue(p1.second.roundToInt().toString())
+                                                    }
+                                                    if (p2 != null) {
+                                                        fields["endX"] = TextFieldValue(p2.first.roundToInt().toString())
+                                                        fields["endY"] = TextFieldValue(p2.second.roundToInt().toString())
+                                                    }
+                                                } else {
+                                                    points.firstOrNull()?.let { p1 ->
+                                                        fields["x"] = TextFieldValue(p1.first.roundToInt().toString())
+                                                        fields["y"] = TextFieldValue(p1.second.roundToInt().toString())
+                                                    }
+                                                }
+                                            }
+                                            OverlayPicker.onCancelled = { }
+                                            context.startService(
+                                                Intent(context, OverlayPickerService::class.java)
+                                                    .putExtra(OverlayPickerService.EXTRA_POINTS_NEEDED, if (isSwipe) 2 else 1)
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f).padding(vertical = 4.dp)
+                                ) { Text(label) }
+                                TextButton(onClick = { manualEntryKeys = manualEntryKeys + groupKeys }) { Text("Manual") }
+                            }
+                        }
                         block.type == BlockType.LAUNCH_APP && key == "packageName" && key !in manualEntryKeys -> {
                             val currentPackage = fields[key]?.text.orEmpty()
                             val label = remember(currentPackage) {
@@ -452,8 +532,11 @@ fun BlockConfigDialog(
                         else -> {
                             val value = fields[key] ?: TextFieldValue("")
                             val isCode = key in codeModeKeys
-                            val isManualPickerField = key in manualEntryKeys &&
-                                (key == "imagePath" || (block.type == BlockType.LAUNCH_APP && key == "packageName"))
+                            val isManualPickerField = key in manualEntryKeys && (
+                                key == "imagePath" ||
+                                    (block.type == BlockType.LAUNCH_APP && key == "packageName") ||
+                                    (isPositionGroupStart(block.type, key))
+                            )
 
                             Column {
                                 ExpressionField(
@@ -473,7 +556,13 @@ fun BlockConfigDialog(
                                 )
                                 if (isManualPickerField) {
                                     TextButton(
-                                        onClick = { manualEntryKeys = manualEntryKeys - key },
+                                        onClick = {
+                                            manualEntryKeys = if (isPositionGroupStart(block.type, key)) {
+                                                manualEntryKeys - groupKeys.toSet()
+                                            } else {
+                                                manualEntryKeys - key
+                                            }
+                                        },
                                         modifier = Modifier.offset(y = (-8).dp)
                                     ) { Text("Use picker instead") }
                                 }
