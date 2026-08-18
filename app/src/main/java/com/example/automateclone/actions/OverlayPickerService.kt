@@ -28,6 +28,8 @@ class OverlayPickerService : Service() {
     private var markerView: View? = null
     private var markerParams: WindowManager.LayoutParams? = null
     private var controlsView: View? = null
+    private var positionLabel: TextView? = null
+    private var instructionLabel: TextView? = null
 
     private var pointsNeeded = 1
     private val collectedPoints = mutableListOf<Pair<Float, Float>>()
@@ -78,24 +80,35 @@ class OverlayPickerService : Service() {
             y = metrics.heightPixels / 2 - MARKER_SIZE_PX / 2
         }
 
-        var initialX = 0
-        var initialY = 0
-        var touchStartX = 0f
-        var touchStartY = 0f
+        // Use getLocationOnScreen() + small incremental deltas rather than
+        // event.rawX/rawY, which is known to misreport coordinates for
+        // TYPE_APPLICATION_OVERLAY windows on some OEM builds (notably
+        // Samsung), causing the marker to appear stuck or jump incorrectly.
+        var lastScreenX = 0f
+        var lastScreenY = 0f
+        val loc = IntArray(2)
 
         marker.setOnTouchListener { view, event ->
-            when (event.action) {
+            view.getLocationOnScreen(loc)
+            val screenX = loc[0] + event.x
+            val screenY = loc[1] + event.y
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    touchStartX = event.rawX
-                    touchStartY = event.rawY
+                    lastScreenX = screenX
+                    lastScreenY = screenY
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - touchStartX).toInt()
-                    params.y = initialY + (event.rawY - touchStartY).toInt()
-                    windowManager.updateViewLayout(view, params)
+                    val dx = (screenX - lastScreenX).toInt()
+                    val dy = (screenY - lastScreenY).toInt()
+                    if (dx != 0 || dy != 0) {
+                        params.x += dx
+                        params.y += dy
+                        windowManager.updateViewLayout(view, params)
+                        lastScreenX = screenX
+                        lastScreenY = screenY
+                        updateLivePosition()
+                    }
                     true
                 }
                 else -> false
@@ -118,13 +131,21 @@ class OverlayPickerService : Service() {
             text = if (pointsNeeded > 1) "Drag marker to the START point, then Confirm" else "Drag marker into place, then Confirm"
             setTextColor(Color.WHITE)
             textSize = 13f
+            setPadding(0, 0, 0, 8)
+        }
+        instructionLabel = label
+
+        val posLabel = TextView(this).apply {
+            setTextColor(Color.YELLOW)
+            textSize = 12f
             setPadding(0, 0, 0, 12)
         }
+        positionLabel = posLabel
 
         val buttonRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val confirmButton = Button(this).apply {
             text = "Confirm"
-            setOnClickListener { onConfirmTapped(label) }
+            setOnClickListener { onConfirmTapped() }
         }
         val cancelButton = Button(this).apply {
             text = "Cancel"
@@ -134,6 +155,7 @@ class OverlayPickerService : Service() {
         buttonRow.addView(cancelButton)
 
         layout.addView(label)
+        layout.addView(posLabel)
         layout.addView(buttonRow)
 
         val params = WindowManager.LayoutParams(
@@ -149,13 +171,24 @@ class OverlayPickerService : Service() {
 
         windowManager.addView(layout, params)
         controlsView = layout
+        updateLivePosition()
     }
 
-    private fun onConfirmTapped(label: TextView) {
-        val params = markerParams ?: return
-        val centerX = params.x + MARKER_SIZE_PX / 2f
-        val centerY = params.y + MARKER_SIZE_PX / 2f
-        collectedPoints += centerX to centerY
+    private fun currentMarkerCenter(): Pair<Float, Float>? {
+        val marker = markerView ?: return null
+        val loc = IntArray(2)
+        marker.getLocationOnScreen(loc)
+        return (loc[0] + marker.width / 2f) to (loc[1] + marker.height / 2f)
+    }
+
+    private fun updateLivePosition() {
+        val center = currentMarkerCenter() ?: return
+        positionLabel?.text = "Position: (${center.first.toInt()}, ${center.second.toInt()})"
+    }
+
+    private fun onConfirmTapped() {
+        val center = currentMarkerCenter() ?: return
+        collectedPoints += center
 
         if (collectedPoints.size >= pointsNeeded) {
             OverlayPicker.onPicked?.invoke(collectedPoints.toList())
@@ -163,7 +196,7 @@ class OverlayPickerService : Service() {
             OverlayPicker.onCancelled = null
             stopSelf()
         } else {
-            label.text = "Now drag to the END point, then Confirm"
+            instructionLabel?.text = "Now drag to the END point, then Confirm"
         }
     }
 
@@ -179,6 +212,8 @@ class OverlayPickerService : Service() {
         controlsView?.let { runCatching { windowManager.removeView(it) } }
         markerView = null
         controlsView = null
+        positionLabel = null
+        instructionLabel = null
     }
 
     private fun startForegroundWithNotification() {
