@@ -41,6 +41,11 @@ class OverlayPickerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundWithNotification()
+        if (markerView != null) {
+            // A picker is already up — ignore the duplicate start request
+            // instead of stacking a second overlapping marker.
+            return START_NOT_STICKY
+        }
         pointsNeeded = intent?.getIntExtra(EXTRA_POINTS_NEEDED, 1) ?: 1
         collectedPoints.clear()
         showMarker()
@@ -80,35 +85,32 @@ class OverlayPickerService : Service() {
             y = metrics.heightPixels / 2 - MARKER_SIZE_PX / 2
         }
 
-        // Use getLocationOnScreen() + small incremental deltas rather than
-        // event.rawX/rawY, which is known to misreport coordinates for
-        // TYPE_APPLICATION_OVERLAY windows on some OEM builds (notably
-        // Samsung), causing the marker to appear stuck or jump incorrectly.
-        var lastScreenX = 0f
-        var lastScreenY = 0f
-        val loc = IntArray(2)
+        // Use a single fixed reference captured at ACTION_DOWN (raw touch
+        // position + window position at that instant), then apply deltas
+        // from that ONE reference for the whole gesture. Recomputing
+        // getLocationOnScreen() on every ACTION_MOVE (previous approach)
+        // creates a compounding feedback loop once the window itself starts
+        // moving mid-gesture, causing the marker to run away across the
+        // screen — this fixed-reference approach avoids that entirely.
+        var downRawX = 0f
+        var downRawY = 0f
+        var downParamsX = 0
+        var downParamsY = 0
 
         marker.setOnTouchListener { view, event ->
-            view.getLocationOnScreen(loc)
-            val screenX = loc[0] + event.x
-            val screenY = loc[1] + event.y
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastScreenX = screenX
-                    lastScreenY = screenY
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    downParamsX = params.x
+                    downParamsY = params.y
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = (screenX - lastScreenX).toInt()
-                    val dy = (screenY - lastScreenY).toInt()
-                    if (dx != 0 || dy != 0) {
-                        params.x += dx
-                        params.y += dy
-                        windowManager.updateViewLayout(view, params)
-                        lastScreenX = screenX
-                        lastScreenY = screenY
-                        updateLivePosition()
-                    }
+                    params.x = downParamsX + (event.rawX - downRawX).toInt()
+                    params.y = downParamsY + (event.rawY - downRawY).toInt()
+                    windowManager.updateViewLayout(view, params)
+                    updateLivePosition()
                     true
                 }
                 else -> false
