@@ -33,6 +33,7 @@ class OverlayPickerService : Service() {
     private var lineView: LineOverlayView? = null
 
     private var controlsView: View? = null
+    private var controlsParams: WindowManager.LayoutParams? = null
     private var positionLabel: TextView? = null
 
     private var pointsNeeded = 1
@@ -208,8 +209,33 @@ class OverlayPickerService : Service() {
             y = 80
         }
 
+        var downRawX = 0f
+        var downRawY = 0f
+        var downParamsX = 0
+        var downParamsY = 0
+
+        layout.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = event.rawX
+                    downRawY = event.rawY
+                    downParamsX = params.x
+                    downParamsY = params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = downParamsX + (event.rawX - downRawX).toInt()
+                    params.y = downParamsY - (event.rawY - downRawY).toInt()
+                    windowManager.updateViewLayout(view, params)
+                    true
+                }
+                else -> false
+            }
+        }
+
         windowManager.addView(layout, params)
         controlsView = layout
+        controlsParams = params
         updateLivePosition()
     }
 
