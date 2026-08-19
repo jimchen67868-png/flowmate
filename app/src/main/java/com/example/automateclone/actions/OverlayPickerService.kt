@@ -25,14 +25,17 @@ import android.widget.TextView
 class OverlayPickerService : Service() {
 
     private lateinit var windowManager: WindowManager
+
     private var markerView: View? = null
-    private var markerParams: WindowManager.LayoutParams? = null
+
+    private var startMarkerView: View? = null
+    private var endMarkerView: View? = null
+    private var lineView: LineOverlayView? = null
+
     private var controlsView: View? = null
     private var positionLabel: TextView? = null
-    private var instructionLabel: TextView? = null
 
     private var pointsNeeded = 1
-    private val collectedPoints = mutableListOf<Pair<Float, Float>>()
 
     override fun onCreate() {
         super.onCreate()
@@ -41,14 +44,30 @@ class OverlayPickerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundWithNotification()
-        if (markerView != null) {
-            // A picker is already up — ignore the duplicate start request
-            // instead of stacking a second overlapping marker.
+        if (markerView != null || startMarkerView != null) {
             return START_NOT_STICKY
         }
         pointsNeeded = intent?.getIntExtra(EXTRA_POINTS_NEEDED, 1) ?: 1
-        collectedPoints.clear()
-        showMarker()
+
+        if (pointsNeeded > 1) {
+            showLine()
+            startMarkerView = showDraggableMarker(
+                fillColor = Color.argb(130, 0, 200, 0),
+                strokeColor = Color.GREEN,
+                xFraction = 0.35f
+            )
+            endMarkerView = showDraggableMarker(
+                fillColor = Color.argb(130, 255, 0, 0),
+                strokeColor = Color.RED,
+                xFraction = 0.65f
+            )
+        } else {
+            markerView = showDraggableMarker(
+                fillColor = Color.argb(130, 255, 0, 0),
+                strokeColor = Color.RED,
+                xFraction = 0.5f
+            )
+        }
         showControls()
         return START_NOT_STICKY
     }
@@ -68,12 +87,34 @@ class OverlayPickerService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-    private fun showMarker() {
+    private fun showLine() {
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getRealMetrics(metrics)
 
-        val marker = CrosshairView(this)
+        val view = LineOverlayView(this) { centerOf(startMarkerView) to centerOf(endMarkerView) }
+        val params = WindowManager.LayoutParams(
+            metrics.widthPixels, metrics.heightPixels,
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+        }
+        windowManager.addView(view, params)
+        lineView = view
+    }
+
+    private fun showDraggableMarker(fillColor: Int, strokeColor: Int, xFraction: Float): View {
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(metrics)
+
+        val marker = CrosshairView(this, fillColor, strokeColor)
         val params = WindowManager.LayoutParams(
             MARKER_SIZE_PX, MARKER_SIZE_PX,
             overlayType(),
@@ -81,17 +122,10 @@ class OverlayPickerService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = metrics.widthPixels / 2 - MARKER_SIZE_PX / 2
+            x = (metrics.widthPixels * xFraction).toInt() - MARKER_SIZE_PX / 2
             y = metrics.heightPixels / 2 - MARKER_SIZE_PX / 2
         }
 
-        // Use a single fixed reference captured at ACTION_DOWN (raw touch
-        // position + window position at that instant), then apply deltas
-        // from that ONE reference for the whole gesture. Recomputing
-        // getLocationOnScreen() on every ACTION_MOVE (previous approach)
-        // creates a compounding feedback loop once the window itself starts
-        // moving mid-gesture, causing the marker to run away across the
-        // screen — this fixed-reference approach avoids that entirely.
         var downRawX = 0f
         var downRawY = 0f
         var downParamsX = 0
@@ -111,6 +145,7 @@ class OverlayPickerService : Service() {
                     params.y = downParamsY + (event.rawY - downRawY).toInt()
                     windowManager.updateViewLayout(view, params)
                     updateLivePosition()
+                    lineView?.invalidate()
                     true
                 }
                 else -> false
@@ -118,8 +153,7 @@ class OverlayPickerService : Service() {
         }
 
         windowManager.addView(marker, params)
-        markerView = marker
-        markerParams = params
+        return marker
     }
 
     private fun showControls() {
@@ -130,12 +164,15 @@ class OverlayPickerService : Service() {
         }
 
         val label = TextView(this).apply {
-            text = if (pointsNeeded > 1) "Drag marker to the START point, then Confirm" else "Drag marker into place, then Confirm"
+            text = if (pointsNeeded > 1) {
+                "Drag the green start and red end markers, then Confirm"
+            } else {
+                "Drag marker into place, then Confirm"
+            }
             setTextColor(Color.WHITE)
             textSize = 13f
             setPadding(0, 0, 0, 8)
         }
-        instructionLabel = label
 
         val posLabel = TextView(this).apply {
             setTextColor(Color.YELLOW)
@@ -176,30 +213,47 @@ class OverlayPickerService : Service() {
         updateLivePosition()
     }
 
-    private fun currentMarkerCenter(): Pair<Float, Float>? {
-        val marker = markerView ?: return null
+    private fun centerOf(view: View?): Pair<Float, Float>? {
+        val v = view ?: return null
         val loc = IntArray(2)
-        marker.getLocationOnScreen(loc)
-        return (loc[0] + marker.width / 2f) to (loc[1] + marker.height / 2f)
+        v.getLocationOnScreen(loc)
+        return (loc[0] + v.width / 2f) to (loc[1] + v.height / 2f)
     }
 
     private fun updateLivePosition() {
-        val center = currentMarkerCenter() ?: return
-        positionLabel?.text = "Position: (${center.first.toInt()}, ${center.second.toInt()})"
+        if (pointsNeeded > 1) {
+            val s = centerOf(startMarkerView)
+            val e = centerOf(endMarkerView)
+            positionLabel?.text = buildString {
+                if (s != null) append("Start: (${s.first.toInt()}, ${s.second.toInt()})  ")
+                if (e != null) append("End: (${e.first.toInt()}, ${e.second.toInt()})")
+            }
+        } else {
+            val c = centerOf(markerView)
+            if (c != null) positionLabel?.text = "Position: (${c.first.toInt()}, ${c.second.toInt()})"
+        }
     }
 
     private fun onConfirmTapped() {
-        val center = currentMarkerCenter() ?: return
-        collectedPoints += center
-
-        if (collectedPoints.size >= pointsNeeded) {
-            OverlayPicker.onPicked?.invoke(collectedPoints.toList())
-            OverlayPicker.onPicked = null
-            OverlayPicker.onCancelled = null
-            stopSelf()
+        if (pointsNeeded > 1) {
+            val s = centerOf(startMarkerView)
+            val e = centerOf(endMarkerView)
+            if (s != null && e != null) {
+                finishPicking(listOf(s, e))
+            }
         } else {
-            instructionLabel?.text = "Now drag to the END point, then Confirm"
+            val c = centerOf(markerView)
+            if (c != null) {
+                finishPicking(listOf(c))
+            }
         }
+    }
+
+    private fun finishPicking(points: List<Pair<Float, Float>>) {
+        OverlayPicker.onPicked?.invoke(points)
+        OverlayPicker.onPicked = null
+        OverlayPicker.onCancelled = null
+        stopSelf()
     }
 
     private fun onCancelTapped() {
@@ -211,11 +265,16 @@ class OverlayPickerService : Service() {
 
     private fun removeOverlayViews() {
         markerView?.let { runCatching { windowManager.removeView(it) } }
+        startMarkerView?.let { runCatching { windowManager.removeView(it) } }
+        endMarkerView?.let { runCatching { windowManager.removeView(it) } }
+        lineView?.let { runCatching { windowManager.removeView(it) } }
         controlsView?.let { runCatching { windowManager.removeView(it) } }
         markerView = null
+        startMarkerView = null
+        endMarkerView = null
+        lineView = null
         controlsView = null
         positionLabel = null
-        instructionLabel = null
     }
 
     private fun startForegroundWithNotification() {
@@ -228,7 +287,7 @@ class OverlayPickerService : Service() {
         }
         val notification = Notification.Builder(this, channelId)
             .setContentTitle("Positioning overlay active")
-            .setContentText("Drag the marker into place, then tap Confirm")
+            .setContentText("Drag the marker(s) into place, then tap Confirm")
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -249,15 +308,19 @@ object OverlayPicker {
     var onCancelled: (() -> Unit)? = null
 }
 
-private class CrosshairView(context: Context) : View(context) {
+private class CrosshairView(
+    context: Context,
+    fillColor: Int,
+    strokeColor: Int
+) : View(context) {
     private val strokePaint = Paint().apply {
-        color = Color.RED
+        color = strokeColor
         style = Paint.Style.STROKE
         strokeWidth = 6f
         isAntiAlias = true
     }
     private val fillPaint = Paint().apply {
-        color = Color.argb(120, 255, 0, 0)
+        color = fillColor
         style = Paint.Style.FILL
         isAntiAlias = true
     }
@@ -271,5 +334,24 @@ private class CrosshairView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, r, strokePaint)
         canvas.drawLine(cx - r, cy, cx + r, cy, strokePaint)
         canvas.drawLine(cx, cy - r, cx, cy + r, strokePaint)
+    }
+}
+
+private class LineOverlayView(
+    context: Context,
+    private val pointsProvider: () -> Pair<Pair<Float, Float>?, Pair<Float, Float>?>
+) : View(context) {
+    private val linePaint = Paint().apply {
+        color = Color.YELLOW
+        strokeWidth = 5f
+        isAntiAlias = true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val (start, end) = pointsProvider()
+        if (start != null && end != null) {
+            canvas.drawLine(start.first, start.second, end.first, end.second, linePaint)
+        }
     }
 }
