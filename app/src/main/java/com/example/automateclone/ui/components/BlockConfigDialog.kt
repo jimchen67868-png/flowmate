@@ -141,11 +141,29 @@ private fun currentArgPartial(value: TextFieldValue): String? {
     return partial
 }
 
+private val SHELL_COMMAND_SEPARATORS = listOf(";", "&&", "||", "|", "\n")
+
+/** Index right after the most recent shell separator (;, &&, ||, |, newline)
+ * before [cursor], or 0 if this is the first command in the field. */
+private fun shellSegmentStart(text: String, cursor: Int): Int {
+    val before = text.substring(0, cursor)
+    var segStart = 0
+    for (sep in SHELL_COMMAND_SEPARATORS) {
+        val idx = before.lastIndexOf(sep)
+        if (idx != -1) {
+            val afterSepIdx = idx + sep.length
+            if (afterSepIdx > segStart) segStart = afterSepIdx
+        }
+    }
+    return segStart
+}
+
 private fun currentShellCommandWord(value: TextFieldValue): String? {
     val cursor = value.selection.start
-    val before = value.text.substring(0, cursor)
-    if (before.contains(" ") || before.contains("\t")) return null
-    return before
+    val segStart = shellSegmentStart(value.text, cursor)
+    val segment = value.text.substring(segStart, cursor).trimStart()
+    if (segment.contains(" ") || segment.contains("\t")) return null
+    return segment
 }
 
 private fun insertVariableAtCursor(value: TextFieldValue, varName: String): TextFieldValue {
@@ -187,9 +205,14 @@ private fun completeFunction(value: TextFieldValue, funcName: String): TextField
 
 private fun completeShellCommand(value: TextFieldValue, command: String): TextFieldValue {
     val cursor = value.selection.start
+    val segStart = shellSegmentStart(value.text, cursor)
+    val afterSep = value.text.substring(segStart, cursor)
+    val leadingWhitespaceLen = afterSep.length - afterSep.trimStart().length
+    val wordStart = segStart + leadingWhitespaceLen
+    val prefix = value.text.substring(0, wordStart)
     val suffix = value.text.substring(cursor).trimStart()
-    val newText = "$command $suffix"
-    return TextFieldValue(newText, TextRange(command.length + 1))
+    val newText = "$prefix$command $suffix"
+    return TextFieldValue(newText, TextRange(prefix.length + command.length + 1))
 }
 
 private fun completeArgVariable(value: TextFieldValue, name: String): TextFieldValue {
