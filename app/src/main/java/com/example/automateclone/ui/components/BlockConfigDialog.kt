@@ -95,6 +95,10 @@ private val COMMON_SHELL_COMMANDS = listOf(
     "settings" to "read/write Android settings"
 )
 
+private val COMMON_OPERATORS = listOf(
+    "&&", "||", "==", "!=", ">=", "<=", ">", "<", "+", "-", "*", "/", "!"
+)
+
 private fun currentPartialVariable(value: TextFieldValue): String? {
     val cursor = value.selection.start
     val before = value.text.substring(0, cursor)
@@ -103,6 +107,38 @@ private fun currentPartialVariable(value: TextFieldValue): String? {
     val segment = before.substring(lastOpen + 2)
     if (segment.contains("}") || segment.contains("$") || segment.contains(" ") || segment.contains("(")) return null
     return segment
+}
+
+/** True when the cursor sits inside the unclosed parentheses of a function
+ * call like ${round(|)} — i.e. an unmatched '(' after the most recent ${. */
+private fun isInsideFunctionArgs(value: TextFieldValue): Boolean {
+    val cursor = value.selection.start
+    val before = value.text.substring(0, cursor)
+    val lastOpen = before.lastIndexOf("\${")
+    if (lastOpen == -1) return false
+    val segment = before.substring(lastOpen + 2)
+    if (segment.contains("}")) return false
+    val openParenIdx = segment.indexOf("(")
+    if (openParenIdx == -1) return false
+    var depth = 0
+    for (c in segment.substring(openParenIdx)) {
+        if (c == '(') depth++
+        if (c == ')') depth--
+    }
+    return depth > 0
+}
+
+/** The partial argument word being typed, delimited by the last '(' or ','. */
+private fun currentArgPartial(value: TextFieldValue): String? {
+    val cursor = value.selection.start
+    val before = value.text.substring(0, cursor)
+    val lastComma = before.lastIndexOf(",")
+    val lastParen = before.lastIndexOf("(")
+    val start = maxOf(lastComma, lastParen)
+    if (start == -1) return null
+    val partial = before.substring(start + 1).trimStart()
+    if (partial.contains(" ") || partial.contains(")") || partial.contains("\"")) return null
+    return partial
 }
 
 private fun currentShellCommandWord(value: TextFieldValue): String? {
@@ -156,6 +192,26 @@ private fun completeShellCommand(value: TextFieldValue, command: String): TextFi
     return TextFieldValue(newText, TextRange(command.length + 1))
 }
 
+private fun completeArgVariable(value: TextFieldValue, name: String): TextFieldValue {
+    val cursor = value.selection.start
+    val before = value.text.substring(0, cursor)
+    val lastComma = before.lastIndexOf(",")
+    val lastParen = before.lastIndexOf("(")
+    val start = maxOf(lastComma, lastParen)
+    if (start == -1) return value
+    val prefix = value.text.substring(0, start + 1)
+    val suffix = value.text.substring(cursor)
+    val newText = prefix + name + suffix
+    return TextFieldValue(newText, TextRange(prefix.length + name.length))
+}
+
+private fun insertOperatorAtCursor(value: TextFieldValue, operator: String): TextFieldValue {
+    val cursor = value.selection.start
+    val insertion = " $operator "
+    val newText = value.text.substring(0, cursor) + insertion + value.text.substring(cursor)
+    return TextFieldValue(newText, TextRange(cursor + insertion.length))
+}
+
 private val ENUM_FIELD_OPTIONS: Map<Pair<BlockType, String>, List<Pair<String, String>>> = mapOf(
     (BlockType.IF_CONDITION to "operator") to listOf(
         "equals" to "Equals (=)",
@@ -197,6 +253,11 @@ private fun ExpressionField(
     } else emptyList()
     val functionSuggestions = if (partial != null) {
         BUILTIN_FUNCTIONS.filter { it.first.startsWith(partial, ignoreCase = true) }
+    } else emptyList()
+    val insideArgs = isCode && isInsideFunctionArgs(value)
+    val argPartial = if (insideArgs) currentArgPartial(value) else null
+    val argVariableSuggestions = if (argPartial != null) {
+        availableVariables.filter { it.startsWith(argPartial, ignoreCase = true) }
     } else emptyList()
     val shellCommandSuggestions = if (isCode && shellSuggestionsFor == fieldKey) {
         currentShellCommandWord(value)?.takeIf { it.isNotEmpty() }?.let { word ->
@@ -260,7 +321,7 @@ private fun ExpressionField(
                 TextButton(onClick = onEnterCodeMode) { Text("fx") }
             }
         }
-        if (isCode && (shellCommandSuggestions.isNotEmpty() || variableSuggestions.isNotEmpty() || functionSuggestions.isNotEmpty())) {
+        if (isCode && (shellCommandSuggestions.isNotEmpty() || variableSuggestions.isNotEmpty() || functionSuggestions.isNotEmpty() || argVariableSuggestions.isNotEmpty())) {
             Row(
                 Modifier
                     .padding(top = 2.dp)
@@ -271,6 +332,12 @@ private fun ExpressionField(
                         onClick = { onValueChange(completeShellCommand(value, name)) },
                         modifier = Modifier.padding(end = 4.dp)
                     ) { Text("$name — $desc", fontSize = 12.sp) }
+                }
+                argVariableSuggestions.forEach { name ->
+                    TextButton(
+                        onClick = { onValueChange(completeArgVariable(value, name)) },
+                        modifier = Modifier.padding(end = 4.dp)
+                    ) { Text(name, fontSize = 12.sp) }
                 }
                 variableSuggestions.forEach { name ->
                     TextButton(
@@ -283,6 +350,20 @@ private fun ExpressionField(
                         onClick = { onValueChange(completeFunction(value, name)) },
                         modifier = Modifier.padding(end = 4.dp)
                     ) { Text("$name()", fontSize = 12.sp) }
+                }
+            }
+        }
+        if (isCode) {
+            Row(
+                Modifier
+                    .padding(top = 2.dp)
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                COMMON_OPERATORS.forEach { op ->
+                    TextButton(
+                        onClick = { onValueChange(insertOperatorAtCursor(value, op)) },
+                        modifier = Modifier.padding(end = 2.dp)
+                    ) { Text(op, fontSize = 12.sp, fontFamily = FontFamily.Monospace) }
                 }
             }
         }
