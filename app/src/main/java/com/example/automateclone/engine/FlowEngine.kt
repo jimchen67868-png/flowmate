@@ -33,6 +33,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToLong
 
+private sealed class FindImageOutcome {
+    data class Found(val x: Int, val y: Int, val score: Double) : FindImageOutcome()
+    object NotFound : FindImageOutcome()
+    data class Error(val message: String) : FindImageOutcome()
+}
+
 class FlowEngine(private val context: Context) {
 
     private val pausedFlag = AtomicBoolean(false)
@@ -177,6 +183,35 @@ class FlowEngine(private val context: Context) {
                         FlowLog.add(flow.name, "PickColor($path, $x,$y) -> $result")
                         if (outputVar.isNotBlank()) variables[outputVar] = result
                     }
+                    BlockType.FIND_IMAGE -> {
+                        val templatePath = substituteVariables(block.config["templatePath"].orEmpty(), variables)
+                        val sourcePath = substituteVariables(block.config["sourcePath"].orEmpty(), variables)
+                        val threshold = substituteVariables(block.config["threshold"].orEmpty(), variables)
+                            .toDoubleOrNull() ?: 0.8
+                        val foundVar = normalizeVariableName(block.config["outputFoundVariable"].orEmpty())
+                        val xVar = normalizeVariableName(block.config["outputXVariable"].orEmpty())
+                        val yVar = normalizeVariableName(block.config["outputYVariable"].orEmpty())
+
+                        when (val outcome = findImage(templatePath, sourcePath, threshold)) {
+                            is FindImageOutcome.Found -> {
+                                FlowLog.add(
+                                    flow.name,
+                                    "Find Image($templatePath) -> found at (${outcome.x},${outcome.y}) score=${"%.2f".format(outcome.score)}"
+                                )
+                                if (foundVar.isNotBlank()) variables[foundVar] = "true"
+                                if (xVar.isNotBlank()) variables[xVar] = outcome.x.toString()
+                                if (yVar.isNotBlank()) variables[yVar] = outcome.y.toString()
+                            }
+                            is FindImageOutcome.NotFound -> {
+                                FlowLog.add(flow.name, "Find Image($templatePath) -> not found")
+                                if (foundVar.isNotBlank()) variables[foundVar] = "false"
+                            }
+                            is FindImageOutcome.Error -> {
+                                FlowLog.add(flow.name, "Find Image($templatePath) -> Error: ${outcome.message}", LogLevel.ERROR)
+                                if (foundVar.isNotBlank()) variables[foundVar] = "false"
+                            }
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -255,6 +290,41 @@ class FlowEngine(private val context: Context) {
             "Error: ${e.message}"
         }
     }
+
+    private suspend fun findImage(templatePath: String, sourcePathRaw: String, threshold: Double): FindImageOutcome =
+        withContext(Dispatchers.Default) {
+            if (templatePath.isBlank()) return@withContext FindImageOutcome.Error("no template image given")
+            try {
+                val templateBitmap = context.contentResolver.openInputStream(resolveImageUri(templatePath))?.use {
+                    BitmapFactory.decodeStream(it)
+                } ?: return@withContext FindImageOutcome.Error("couldn't decode template image")
+
+                val sourceBitmap = if (sourcePathRaw.isNotBlank()) {
+                    context.contentResolver.openInputStream(resolveImageUri(sourcePathRaw))?.use {
+                        BitmapFactory.decodeStream(it)
+                    } ?: return@withContext FindImageOutcome.Error("couldn't decode source image")
+                } else {
+                    val screenshotResult = ScreenCaptureService.instance?.captureScreenshot()
+                        ?: return@withContext FindImageOutcome.Error(
+                            "screenshot not enabled — tap Enable Screenshot, or provide a sourcePath"
+                        )
+                    if (screenshotResult.startsWith("Error")) {
+                        return@withContext FindImageOutcome.Error(screenshotResult)
+                    }
+                    BitmapFactory.decodeFile(screenshotResult)
+                        ?: return@withContext FindImageOutcome.Error("couldn't decode screenshot")
+                }
+
+                val match = ImageMatcher.findTemplate(sourceBitmap, templateBitmap, threshold)
+                if (match.found) {
+                    FindImageOutcome.Found(match.x, match.y, match.score)
+                } else {
+                    FindImageOutcome.NotFound
+                }
+            } catch (e: Exception) {
+                FindImageOutcome.Error(e.message ?: "unknown error")
+            }
+        }
 
     private fun resolveImageUri(path: String): Uri = when {
         path.startsWith("content://") || path.startsWith("file://") -> Uri.parse(path)

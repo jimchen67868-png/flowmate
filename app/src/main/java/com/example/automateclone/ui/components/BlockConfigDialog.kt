@@ -558,7 +558,7 @@ fun BlockConfigDialog(
                                 }
                             }
                         }
-                        key == "imagePath" && key !in manualEntryKeys -> {
+                        (key == "imagePath" || key == "templatePath" || key == "sourcePath") && key !in manualEntryKeys -> {
                             val current = fields[key]?.text.orEmpty()
                             val displayName = remember(current) {
                                 if (current.isBlank()) {
@@ -614,7 +614,7 @@ fun BlockConfigDialog(
                             val value = fields[key] ?: TextFieldValue("")
                             val isCode = key in codeModeKeys
                             val isManualPickerField = key in manualEntryKeys && (
-                                key == "imagePath" ||
+                                key == "imagePath" || key == "templatePath" || key == "sourcePath" ||
                                     (block.type == BlockType.LAUNCH_APP && key == "packageName") ||
                                     (isPositionGroupStart(block.type, key))
                             )
