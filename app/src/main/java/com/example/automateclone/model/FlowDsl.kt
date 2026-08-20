@@ -1,11 +1,13 @@
 package com.example.automateclone.model
 
+import kotlin.math.roundToInt
+
 object FlowDsl {
 
     class ParseException(message: String) : Exception(message)
 
     private val blockLineRegex =
-        Regex("""^(trigger|action|logic)\s+([A-Z_]+)\s*\(([^)]*)\)\s+as\s+([A-Za-z0-9_]+)$""")
+        Regex("""^(trigger|action|logic)\s+([A-Z_]+)\s*\(([^)]*)\)\s+as\s+([A-Za-z0-9_]+)(?:\s+at\s+\(([-\d.]+)\s*,\s*([-\d.]+)\))?$""")
     private val configPairRegex = Regex("""(\w+)\s*=\s*("([^"]*)"|[^,]+)""")
 
     private fun escapeValue(value: String): String =
@@ -48,7 +50,7 @@ object FlowDsl {
             flow.blocks.forEach { b ->
                 val keyword = b.type.category.name.lowercase()
                 val config = b.config.entries.joinToString(", ") { (k, v) -> "$k=\"${escapeValue(v)}\"" }
-                appendLine("    $keyword ${b.type.name}($config) as ${aliasOf[b.id]}")
+                appendLine("    $keyword ${b.type.name}($config) as ${aliasOf[b.id]} at (${b.x.roundToInt()}, ${b.y.roundToInt()})")
             }
             if (flow.connections.isNotEmpty()) {
                 appendLine()
@@ -82,6 +84,7 @@ object FlowDsl {
         val blocks = mutableListOf<Block>()
         val aliasToId = mutableMapOf<String, String>()
         val connections = mutableListOf<Connection>()
+        val needsLayoutIds = mutableSetOf<String>()
 
         body.lines().forEachIndexed { idx, rawLine ->
             val line = rawLine.substringBefore("//").trim()
@@ -90,7 +93,12 @@ object FlowDsl {
 
             val blockMatch = blockLineRegex.find(line)
             if (blockMatch != null) {
-                val (keyword, typeName, configRaw, alias) = blockMatch.destructured
+                val keyword = blockMatch.groupValues[1]
+                val typeName = blockMatch.groupValues[2]
+                val configRaw = blockMatch.groupValues[3]
+                val alias = blockMatch.groupValues[4]
+                val xStr = blockMatch.groupValues[5]
+                val yStr = blockMatch.groupValues[6]
                 val type = try {
                     BlockType.valueOf(typeName)
                 } catch (e: IllegalArgumentException) {
@@ -111,6 +119,14 @@ object FlowDsl {
                     config[key] = unescapeValue(rawValue)
                 }
                 val block = Block(type = type, config = config)
+                val parsedX = xStr.toFloatOrNull()
+                val parsedY = yStr.toFloatOrNull()
+                if (parsedX != null && parsedY != null) {
+                    block.x = parsedX
+                    block.y = parsedY
+                } else {
+                    needsLayoutIds += block.id
+                }
                 blocks += block
                 aliasToId[alias] = block.id
                 return@forEachIndexed
@@ -147,7 +163,7 @@ object FlowDsl {
             throw ParseException("Line $lineNo: couldn't understand: \"$line\"")
         }
 
-        autoLayout(blocks, connections)
+        autoLayout(blocks, connections, needsLayoutIds)
 
         return AutomationFlow(
             id = existingId ?: java.util.UUID.randomUUID().toString(),
@@ -158,8 +174,8 @@ object FlowDsl {
         )
     }
 
-    private fun autoLayout(blocks: List<Block>, connections: List<Connection>) {
-        if (blocks.isEmpty()) return
+    private fun autoLayout(blocks: List<Block>, connections: List<Connection>, needsLayoutIds: Set<String>) {
+        if (blocks.isEmpty() || needsLayoutIds.isEmpty()) return
         val layer = mutableMapOf<String, Int>()
         blocks.forEach { layer[it.id] = 0 }
         repeat(blocks.size) {
@@ -169,7 +185,8 @@ object FlowDsl {
                 if (toLayer < fromLayer + 1) layer[c.toBlockId] = fromLayer + 1
             }
         }
-        blocks.groupBy { layer[it.id] ?: 0 }
+        blocks.filter { it.id in needsLayoutIds }
+            .groupBy { layer[it.id] ?: 0 }
             .toSortedMap()
             .forEach { (layerIdx, blocksInLayer) ->
                 blocksInLayer.forEachIndexed { i, b ->
