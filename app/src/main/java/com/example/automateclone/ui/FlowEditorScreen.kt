@@ -16,6 +16,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.automateclone.engine.FlowEngine
@@ -127,12 +128,12 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     var panOffset by remember { mutableStateOf(Offset.Zero) }
 
     var showCode by remember { mutableStateOf(false) }
-    var codeText by remember { mutableStateOf("") }
+    var codeText by remember { mutableStateOf(TextFieldValue("")) }
     var codeError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(showCode) {
         if (showCode) {
-            codeText = FlowDsl.serialize(flow)
+            codeText = TextFieldValue(FlowDsl.serialize(flow))
             codeError = null
         }
     }
@@ -225,12 +226,12 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
             LogScreen(modifier = Modifier.padding(padding))
         } else if (showCode) {
             CodeEditorScreen(
-                text = codeText,
-                onTextChange = { codeText = it },
+                value = codeText,
+                onValueChange = { codeText = it },
                 error = codeError,
                 onApply = {
                     try {
-                        val parsed = FlowDsl.parse(codeText, existingId = flow.id)
+                        val parsed = FlowDsl.parse(codeText.text, existingId = flow.id)
                         snapshotForUndo()
                         flow = parsed
                         persist()
@@ -457,10 +458,6 @@ fun FlowEditorScreen(initialFlow: AutomationFlow, onBack: () -> Unit) {
     }
 
     editingBlock?.let { block ->
-        // Variables can come from Set Variable's "name" field, or from any
-        // block that produces an output, like Shell Command / OCR Image's
-        // "outputVariable" — all of them need to show up here or there's no
-        // way to know they exist when typing ${...} elsewhere.
         fun normalizeVariableName(raw: String): String {
             val trimmed = raw.trim()
             return if (trimmed.startsWith("\${") && trimmed.endsWith("}")) {
