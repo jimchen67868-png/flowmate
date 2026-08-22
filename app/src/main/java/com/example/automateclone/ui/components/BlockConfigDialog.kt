@@ -95,10 +95,6 @@ private val COMMON_SHELL_COMMANDS = listOf(
     "settings" to "read/write Android settings"
 )
 
-private val COMMON_OPERATORS = listOf(
-    "&&", "||", "==", "!=", ">=", "<=", ">", "<", "+", "-", "*", "/", "!"
-)
-
 private fun currentPartialVariable(value: TextFieldValue): String? {
     val cursor = value.selection.start
     val before = value.text.substring(0, cursor)
@@ -226,13 +222,6 @@ private fun completeArgVariable(value: TextFieldValue, name: String): TextFieldV
     val suffix = value.text.substring(cursor)
     val newText = prefix + name + suffix
     return TextFieldValue(newText, TextRange(prefix.length + name.length))
-}
-
-private fun insertOperatorAtCursor(value: TextFieldValue, operator: String): TextFieldValue {
-    val cursor = value.selection.start
-    val insertion = " $operator "
-    val newText = value.text.substring(0, cursor) + insertion + value.text.substring(cursor)
-    return TextFieldValue(newText, TextRange(cursor + insertion.length))
 }
 
 private val ENUM_FIELD_OPTIONS: Map<Pair<BlockType, String>, List<Pair<String, String>>> = mapOf(
@@ -373,20 +362,6 @@ private fun ExpressionField(
                         onClick = { onValueChange(completeFunction(value, name)) },
                         modifier = Modifier.padding(end = 4.dp)
                     ) { Text("$name()", fontSize = 12.sp) }
-                }
-            }
-        }
-        if (isCode) {
-            Row(
-                Modifier
-                    .padding(top = 2.dp)
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                COMMON_OPERATORS.forEach { op ->
-                    TextButton(
-                        onClick = { onValueChange(insertOperatorAtCursor(value, op)) },
-                        modifier = Modifier.padding(end = 2.dp)
-                    ) { Text(op, fontSize = 12.sp, fontFamily = FontFamily.Monospace) }
                 }
             }
         }
