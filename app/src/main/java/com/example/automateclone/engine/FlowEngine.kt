@@ -69,6 +69,26 @@ class FlowEngine(private val context: Context) {
         }
     }
 
+    /**
+     * Parses a duration like "500" (bare number = milliseconds, for backward
+     * compatibility), "30s", "5m", "2h", "1d" (case-insensitive), or decimals
+     * like "1.5h". Returns null if the string doesn't match.
+     */
+    private fun parseDurationMs(raw: String): Long? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        val match = Regex("""^(\d+(?:\.\d+)?)\s*([smhd]?)$""", RegexOption.IGNORE_CASE).find(trimmed) ?: return null
+        val amount = match.groupValues[1].toDoubleOrNull() ?: return null
+        val multiplier = when (match.groupValues[2].lowercase()) {
+            "s" -> 1_000.0
+            "m" -> 60_000.0
+            "h" -> 3_600_000.0
+            "d" -> 86_400_000.0
+            else -> 1.0 // no unit = milliseconds
+        }
+        return (amount * multiplier).toLong()
+    }
+
     private suspend fun awaitIfPaused() {
         while (pausedFlag.get()) {
             delay(150)
@@ -103,8 +123,10 @@ class FlowEngine(private val context: Context) {
             BlockCategory.LOGIC -> {
                 when (block.type) {
                     BlockType.WAIT -> {
-                        val ms = block.config["durationMs"]?.toLongOrNull() ?: 0L
-                        FlowLog.add(flow.name, "Waiting ${ms}ms")
+                        val raw = block.config["duration"]?.takeIf { it.isNotBlank() }
+                            ?: block.config["durationMs"].orEmpty() // legacy key from older saved flows
+                        val ms = parseDurationMs(raw) ?: 0L
+                        FlowLog.add(flow.name, "Waiting ${raw.ifBlank { "0" }} (${ms}ms)")
                         delay(ms)
                     }
                     BlockType.SET_VARIABLE -> {

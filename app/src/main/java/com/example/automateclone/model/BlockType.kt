@@ -24,7 +24,7 @@ enum class BlockType(
     LONG_PRESS(BlockCategory.ACTION, "Long Press", listOf("x", "y", "durationMs")),
     SWIPE(BlockCategory.ACTION, "Swipe", listOf("startX", "startY", "endX", "endY", "durationMs")),
 
-    WAIT(BlockCategory.LOGIC, "Wait", listOf("durationMs")),
+    WAIT(BlockCategory.LOGIC, "Wait", listOf("duration")),
     IF_CONDITION(BlockCategory.LOGIC, "If", listOf("variable", "operator", "value")),
     SET_VARIABLE(BlockCategory.LOGIC, "Set Variable", listOf("name", "value")),
     LOOP(BlockCategory.LOGIC, "Loop", listOf("count")),
