@@ -5,8 +5,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import com.example.automateclone.actions.ActionExecutor
+import com.example.automateclone.actions.GestureAccessibilityService
 import com.example.automateclone.actions.ScreenCaptureService
 import com.example.automateclone.model.AutomationFlow
 import com.example.automateclone.model.Block
@@ -158,8 +160,7 @@ class FlowEngine(private val context: Context) {
                     }
                     BlockType.SCREENSHOT -> {
                         val outputVar = normalizeVariableName(block.config["outputVariable"].orEmpty())
-                        val result = ScreenCaptureService.instance?.captureScreenshot()
-                            ?: "Error: screenshot not enabled — tap Enable Screenshot on the flow list screen"
+                        val result = captureScreenshotPreferred()
                         FlowLog.add(flow.name, "Screenshot -> ${result.take(80)}")
                         if (outputVar.isNotBlank()) variables[outputVar] = result
                     }
@@ -221,6 +222,23 @@ class FlowEngine(private val context: Context) {
         for (next in flow.outgoingFrom(block.id, "output")) {
             walk(flow, next, visited, variables)
         }
+    }
+
+    /**
+     * Prefers the Accessibility Service screenshot API (Android 11+, no
+     * MediaProjection consent, no persistent cast icon) when a connected
+     * gesture service is available; falls back to the MediaProjection-based
+     * ScreenCaptureService otherwise (older Android, or gestures not enabled).
+     */
+    private suspend fun captureScreenshotPreferred(): String {
+        val gestureService = GestureAccessibilityService.instance
+        if (gestureService != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val result = gestureService.captureScreenshotViaAccessibility(context.filesDir)
+            if (!result.startsWith("Error")) return result
+            // Fall through to MediaProjection if the accessibility route failed.
+        }
+        return ScreenCaptureService.instance?.captureScreenshot()
+            ?: "Error: screenshot not enabled — enable Gestures (preferred, no icon) or tap Enable Screenshot on the flow list screen"
     }
 
     private suspend fun runShellCommand(command: String): String = withContext(Dispatchers.IO) {
@@ -304,10 +322,7 @@ class FlowEngine(private val context: Context) {
                         BitmapFactory.decodeStream(it)
                     } ?: return@withContext FindImageOutcome.Error("couldn't decode source image")
                 } else {
-                    val screenshotResult = ScreenCaptureService.instance?.captureScreenshot()
-                        ?: return@withContext FindImageOutcome.Error(
-                            "screenshot not enabled — tap Enable Screenshot, or provide a sourcePath"
-                        )
+                    val screenshotResult = captureScreenshotPreferred()
                     if (screenshotResult.startsWith("Error")) {
                         return@withContext FindImageOutcome.Error(screenshotResult)
                     }

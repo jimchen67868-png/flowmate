@@ -4,14 +4,20 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Path
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
+import androidx.annotation.RequiresApi
 import com.example.automateclone.engine.FlowLog
 import com.example.automateclone.engine.LogLevel
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
+import java.io.FileOutputStream
 import kotlin.coroutines.resume
 
 class GestureAccessibilityService : AccessibilityService() {
@@ -38,8 +44,8 @@ class GestureAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Intentionally empty — this service only performs gestures, it never
-        // inspects screen content or events.
+        // Intentionally empty — this service only performs gestures and
+        // screenshots, it never inspects screen content or events.
     }
 
     override fun onInterrupt() { }
@@ -94,6 +100,54 @@ class GestureAccessibilityService : AccessibilityService() {
             true -> "$label OK $target"
             false -> "Error: $label was cancelled or failed to dispatch $target"
             null -> "Error: $label timed out $target"
+        }
+    }
+
+    /**
+     * Captures a screenshot via the Accessibility Service API (Android 11+),
+     * which does NOT require MediaProjection consent and shows no persistent
+     * "casting" status bar icon — unlike ScreenCaptureService's approach.
+     */
+    @RequiresApi(Build.VERSION_CODES.R)
+    suspend fun captureScreenshotViaAccessibility(filesDir: File): String {
+        return try {
+            val bitmap = withTimeoutOrNull(8000) {
+                suspendCancellableCoroutine<Bitmap?> { cont ->
+                    takeScreenshot(
+                        Display.DEFAULT_DISPLAY,
+                        mainExecutor,
+                        object : TakeScreenshotCallback {
+                            override fun onSuccess(screenshot: ScreenshotResult) {
+                                try {
+                                    val hb = screenshot.hardwareBuffer
+                                    val cs = screenshot.colorSpace
+                                    val hwBitmap = Bitmap.wrapHardwareBuffer(hb, cs)
+                                    hb.close()
+                                    val softwareBitmap = hwBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                                    hwBitmap?.recycle()
+                                    if (cont.isActive) cont.resume(softwareBitmap)
+                                } catch (e: Exception) {
+                                    if (cont.isActive) cont.resume(null)
+                                }
+                            }
+
+                            override fun onFailure(errorCode: Int) {
+                                if (cont.isActive) cont.resume(null)
+                            }
+                        }
+                    )
+                }
+            }
+
+            if (bitmap == null) {
+                "Error: accessibility screenshot failed or timed out"
+            } else {
+                val file = File(filesDir, "screenshot_${System.currentTimeMillis()}.png")
+                FileOutputStream(file).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                file.absolutePath
+            }
+        } catch (e: Exception) {
+            "Error: ${e.message}"
         }
     }
 
