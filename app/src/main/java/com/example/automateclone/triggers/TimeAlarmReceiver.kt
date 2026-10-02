@@ -16,8 +16,9 @@ class TimeAlarmReceiver : BroadcastReceiver() {
         val repo = FlowRepository(context)
         val engine = FlowEngine(context)
         val now = Calendar.getInstance()
-        val hour = now.get(Calendar.HOUR_OF_DAY)
-        val minute = now.get(Calendar.MINUTE)
+
+        val hour = intent.getIntExtra(TimeTriggerScheduler.EXTRA_TARGET_HOUR, now.get(Calendar.HOUR_OF_DAY))
+        val minute = intent.getIntExtra(TimeTriggerScheduler.EXTRA_TARGET_MINUTE, now.get(Calendar.MINUTE))
         val dayCode = dayCodes[now.get(Calendar.DAY_OF_WEEK) - 1]
 
         repo.loadAll().filter { it.enabled }.forEach { flow ->
